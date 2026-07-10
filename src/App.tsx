@@ -115,6 +115,167 @@ export default function App() {
 
   const currentEpisode = selectedSeries?.playlist[currentEpisodeIndex] || null;
 
+  // TV / Low-power optimization: If theater mode is active, early-return the player view directly.
+  // This guarantees that only one <video> tag is present in the DOM, avoiding overlay, audio conflicts, or TV crashes.
+  if (theaterMode && selectedSeries && currentEpisode) {
+    return (
+      <div className="fixed inset-0 z-50 bg-[#030303] text-white flex flex-col md:flex-row h-screen w-screen overflow-hidden">
+        
+        {/* Left/Main Container: Widescreen Theater Video Player */}
+        <div className="flex-1 flex flex-col justify-between relative bg-black h-[60%] md:h-full">
+          
+          {/* Top controls HUD (visible on overlay) with pointer-events-none to prevent interception */}
+          <div className="absolute top-0 inset-x-0 p-6 bg-gradient-to-b from-black/90 via-black/40 to-transparent z-30 flex items-center justify-between pointer-events-none">
+            <button 
+              onClick={() => {
+                setTheaterMode(false);
+                setDetailModalOpen(true);
+              }}
+              className="flex items-center space-x-2 text-sm font-semibold text-neutral-300 hover:text-white bg-black/60 backdrop-blur-md px-4 py-2 rounded-lg border border-neutral-800 transition pointer-events-auto cursor-pointer"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Salir del Reproductor</span>
+            </button>
+
+            <div className="text-center pointer-events-auto">
+              <p className="text-[10px] uppercase font-bold tracking-widest text-red-500">{selectedSeries.title}</p>
+              <p className="text-sm font-bold text-white line-clamp-1">{currentEpisode.titulo}</p>
+            </div>
+
+            <div className="flex items-center space-x-3 pointer-events-auto">
+              <div className="bg-black/60 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-neutral-300 flex items-center space-x-2">
+                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <span className="font-mono text-[10px]">Autoplay Siguiente</span>
+                <input 
+                  type="checkbox" 
+                  checked={autoplayNext}
+                  onChange={(e) => setAutoplayNext(e.target.checked)}
+                  className="accent-red-600 rounded cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Native Video Player - Fully unencumbered by floating elements */}
+          <div className="w-full h-full flex items-center justify-center relative">
+            <video 
+              ref={videoPlayerRef}
+              key={currentEpisodeIndex}
+              src={currentEpisode.url}
+              controls
+              autoPlay
+              onEnded={handlePlayNext}
+              className="w-full h-full object-contain focus:outline-none"
+            />
+          </div>
+        </div>
+
+        {/* Right Side Control Center: Quick navigation Sidebar */}
+        <div className="w-full md:w-[350px] bg-neutral-950 border-t md:border-t-0 md:border-l border-neutral-900 flex flex-col h-[40%] md:h-full z-10">
+          <div className="p-4 border-b border-neutral-900 bg-neutral-900/30 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center space-x-1.5">
+                <ListOrdered className="w-3.5 h-3.5 text-red-500" />
+                <span>Contenido de la serie</span>
+              </h4>
+              <span className="text-[10px] bg-red-600/20 text-red-500 font-bold px-2 py-0.5 rounded">
+                Episodio {currentEpisodeIndex + 1}/{selectedSeries.playlist.length}
+              </span>
+            </div>
+
+            {/* Miniature Search */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-neutral-500" />
+              <input 
+                type="text"
+                placeholder="Filtrar capítulos..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="bg-neutral-900 border border-neutral-800 text-[11px] rounded-lg pl-8 pr-4 py-1.5 w-full focus:outline-none focus:border-red-600 transition text-white"
+              />
+            </div>
+          </div>
+
+          {/* Mini sidebar playlist */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            {filteredEpisodes.map((ep) => {
+              const playlistIndex = selectedSeries.playlist.findIndex(p => p.episodio === ep.episodio);
+              const isActive = playlistIndex === currentEpisodeIndex;
+
+              return (
+                <div 
+                  key={ep.episodio}
+                  onClick={() => setCurrentEpisodeIndex(playlistIndex)}
+                  className={`p-2.5 rounded-lg border cursor-pointer flex items-center space-x-3 transition duration-150 ${
+                    isActive 
+                      ? 'border-red-600 bg-red-950/20 shadow-md' 
+                      : 'border-neutral-900 bg-neutral-900/50 hover:bg-neutral-900 hover:border-neutral-800'
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded flex items-center justify-center font-mono font-bold text-[11px] shrink-0 ${
+                    isActive ? 'bg-red-600 text-white' : 'bg-neutral-800 text-neutral-400'
+                  }`}>
+                    {ep.episodio}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-xs font-semibold truncate ${isActive ? 'text-red-500' : 'text-neutral-200'}`}>
+                      {ep.titulo}
+                    </p>
+                    <p className="text-[9px] text-neutral-500">Video MP4 • 1080p</p>
+                  </div>
+
+                  {isActive && (
+                    <span className="w-2 h-2 rounded-full bg-red-600 animate-ping shrink-0" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Dedicated Playback Controller Panel in sidebar footer (No overlays!) */}
+          <div className="p-4 border-t border-neutral-900 bg-black/60 space-y-3">
+            <div className="text-xs space-y-1">
+              <span className="text-neutral-500">Reproduciendo ahora:</span>
+              <p className="font-bold text-white line-clamp-1">{currentEpisode.titulo}</p>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-neutral-900/50">
+              <button 
+                onClick={handlePlayPrev} 
+                disabled={currentEpisodeIndex === 0}
+                className="flex items-center justify-center p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 text-neutral-300 hover:text-white transition cursor-pointer"
+                title="Anterior"
+              >
+                <Rewind className="w-4 h-4 fill-current" />
+              </button>
+
+              <button 
+                onClick={handleRestartEpisode} 
+                className="flex items-center justify-center p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white transition cursor-pointer"
+                title="Reiniciar Capítulo"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+
+              <span className="text-xs font-mono text-neutral-400 font-semibold">Cap. {currentEpisode.episodio}</span>
+
+              <button 
+                onClick={handlePlayNext} 
+                disabled={currentEpisodeIndex === selectedSeries.playlist.length - 1}
+                className="flex items-center justify-center p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 text-neutral-300 hover:text-white transition cursor-pointer"
+                title="Siguiente"
+              >
+                <FastForward className="w-4 h-4 fill-current" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-[#f5f5f7] font-sans antialiased overflow-x-hidden selection:bg-[#E50914] selection:text-white">
       
@@ -241,27 +402,38 @@ export default function App() {
               className="bg-neutral-900/60 rounded-2xl p-4 border border-neutral-800/80 backdrop-blur-lg shadow-2xl relative overflow-hidden group hover:border-red-600/30 transition-all duration-300"
             >
               <div className="aspect-video w-full rounded-xl overflow-hidden bg-black relative">
-                {/* Embedded preview playing in loop & muted */}
-                <video 
-                  src={seriesData[0].playlist[0].url}
-                  className="w-full h-full object-cover"
-                  autoPlay
-                  muted={isMuted}
-                  loop
-                  playsInline
-                />
+                {/* Embedded preview playing in loop & muted (only when modal is NOT open to prevent multi-video decoding conflicts) */}
+                {!detailModalOpen ? (
+                  <video 
+                    src={seriesData[0].playlist[0].url}
+                    className="w-full h-full object-cover"
+                    autoPlay
+                    muted={isMuted}
+                    loop
+                    playsInline
+                  />
+                ) : (
+                  <img 
+                    src={seriesData[0].thumbnail}
+                    className="w-full h-full object-cover opacity-80"
+                    alt={seriesData[0].title}
+                    referrerPolicy="no-referrer"
+                  />
+                )}
                 <div className="absolute top-3 left-3 bg-red-600 text-white font-extrabold text-[9px] tracking-widest px-2 py-0.5 rounded-full uppercase flex items-center space-x-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                   <span>VISTA PREVIA</span>
                 </div>
 
-                <button 
-                  onClick={() => setIsMuted(!isMuted)}
-                  className="absolute bottom-3 right-3 p-2 bg-black/70 rounded-full text-white hover:bg-red-600 transition"
-                  title={isMuted ? "Activar sonido" : "Silenciar"}
-                >
-                  {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                </button>
+                {!detailModalOpen && (
+                  <button 
+                    onClick={() => setIsMuted(!isMuted)}
+                    className="absolute bottom-3 right-3 p-2 bg-black/70 rounded-full text-white hover:bg-red-600 transition"
+                    title={isMuted ? "Activar sonido" : "Silenciar"}
+                  >
+                    {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  </button>
+                )}
               </div>
 
               <div className="mt-4 space-y-2">
@@ -587,162 +759,6 @@ export default function App() {
                 </div>
               </div>
             </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Full-Screen Immersive Theater Player Mode */}
-      <AnimatePresence>
-        {theaterMode && selectedSeries && currentEpisode && (
-          <div className="fixed inset-0 z-50 bg-[#030303] text-white flex flex-col md:flex-row h-screen w-screen overflow-hidden">
-            
-            {/* Left/Main Container: Widescreen Theater Video Player */}
-            <div className="flex-1 flex flex-col justify-between relative bg-black h-[60%] md:h-full">
-              
-              {/* Top controls HUD (visible on overlay) */}
-              <div className="absolute top-0 inset-x-0 p-6 bg-gradient-to-b from-black/90 via-black/40 to-transparent z-30 flex items-center justify-between">
-                <button 
-                  onClick={() => {
-                    setTheaterMode(false);
-                    setDetailModalOpen(true);
-                  }}
-                  className="flex items-center space-x-2 text-sm font-semibold text-neutral-300 hover:text-white bg-black/60 backdrop-blur-md px-4 py-2 rounded-lg border border-neutral-800 transition"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  <span>Salir del Reproductor</span>
-                </button>
-
-                <div className="text-center">
-                  <p className="text-[10px] uppercase font-bold tracking-widest text-red-500">{selectedSeries.title}</p>
-                  <p className="text-sm font-bold text-white line-clamp-1">{currentEpisode.titulo}</p>
-                </div>
-
-                <div className="flex items-center space-x-3">
-                  <div className="bg-black/60 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-neutral-300 flex items-center space-x-2">
-                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                    <span className="font-mono text-[10px]">Autoplay Siguiente</span>
-                    <input 
-                      type="checkbox" 
-                      checked={autoplayNext}
-                      onChange={(e) => setAutoplayNext(e.target.checked)}
-                      className="accent-red-600 rounded cursor-pointer"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Native Video Player */}
-              <div className="w-full h-full flex items-center justify-center relative group">
-                <video 
-                  ref={videoPlayerRef}
-                  key={currentEpisodeIndex}
-                  src={currentEpisode.url}
-                  controls
-                  autoPlay
-                  onEnded={handlePlayNext}
-                  className="w-full h-full object-contain"
-                />
-
-                {/* Custom floaty controller shortcut overlay (hidden by default, useful helper) */}
-                <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 bg-black/80 backdrop-blur-md px-6 py-3 rounded-full border border-neutral-800 flex items-center space-x-6 opacity-0 hover:opacity-100 group-hover:opacity-10 transition-opacity duration-300 z-20">
-                  <button 
-                    onClick={handlePlayPrev} 
-                    disabled={currentEpisodeIndex === 0}
-                    className="text-neutral-400 hover:text-white disabled:opacity-20 transition"
-                    title="Anterior"
-                  >
-                    <Rewind className="w-5 h-5 fill-current" />
-                  </button>
-                  <button 
-                    onClick={handleRestartEpisode} 
-                    className="text-neutral-400 hover:text-white transition"
-                    title="Reiniciar Capítulo"
-                  >
-                    <RotateCcw className="w-5 h-5" />
-                  </button>
-                  <span className="text-xs font-mono text-neutral-300">Capítulo {currentEpisode.episodio}</span>
-                  <button 
-                    onClick={handlePlayNext} 
-                    disabled={currentEpisodeIndex === selectedSeries.playlist.length - 1}
-                    className="text-neutral-400 hover:text-white disabled:opacity-20 transition"
-                    title="Siguiente"
-                  >
-                    <FastForward className="w-5 h-5 fill-current" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Right Side Control Center: Quick navigation Sidebar */}
-            <div className="w-full md:w-[350px] bg-neutral-950 border-t md:border-t-0 md:border-l border-neutral-900 flex flex-col h-[40%] md:h-full z-10">
-              <div className="p-4 border-b border-neutral-900 bg-neutral-900/30 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center space-x-1.5">
-                    <ListOrdered className="w-3.5 h-3.5 text-red-500" />
-                    <span>Contenido de la serie</span>
-                  </h4>
-                  <span className="text-[10px] bg-red-600/20 text-red-500 font-bold px-2 py-0.5 rounded">
-                    Episodio {currentEpisodeIndex + 1}/{selectedSeries.playlist.length}
-                  </span>
-                </div>
-
-                {/* Miniature Search */}
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-neutral-500" />
-                  <input 
-                    type="text"
-                    placeholder="Filtrar capítulos..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-neutral-900 border border-neutral-800 text-[11px] rounded-lg pl-8 pr-4 py-1.5 w-full focus:outline-none focus:border-red-600 transition text-white"
-                  />
-                </div>
-              </div>
-
-              {/* Mini sidebar playlist */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                {filteredEpisodes.map((ep) => {
-                  const playlistIndex = selectedSeries.playlist.findIndex(p => p.episodio === ep.episodio);
-                  const isActive = playlistIndex === currentEpisodeIndex;
-
-                  return (
-                    <div 
-                      key={ep.episodio}
-                      onClick={() => setCurrentEpisodeIndex(playlistIndex)}
-                      className={`p-2.5 rounded-lg border cursor-pointer flex items-center space-x-3 transition duration-150 ${
-                        isActive 
-                          ? 'border-red-600 bg-red-950/20 shadow-md' 
-                          : 'border-neutral-900 bg-neutral-900/50 hover:bg-neutral-900 hover:border-neutral-800'
-                      }`}
-                    >
-                      <div className={`w-8 h-8 rounded flex items-center justify-center font-mono font-bold text-[11px] shrink-0 ${
-                        isActive ? 'bg-red-600 text-white' : 'bg-neutral-800 text-neutral-400'
-                      }`}>
-                        {ep.episodio}
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <p className={`text-xs font-semibold truncate ${isActive ? 'text-red-500' : 'text-neutral-200'}`}>
-                          {ep.titulo}
-                        </p>
-                        <p className="text-[9px] text-neutral-500">Video MP4 • 1080p</p>
-                      </div>
-
-                      {isActive && (
-                        <span className="w-2 h-2 rounded-full bg-red-600 animate-ping shrink-0" />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Current episode footer summary inside player */}
-              <div className="p-4 border-t border-neutral-900 bg-black/50 text-xs space-y-1">
-                <span className="text-neutral-500">Reproduciendo ahora:</span>
-                <p className="font-bold text-white line-clamp-2">{currentEpisode.titulo}</p>
-              </div>
-            </div>
-
           </div>
         )}
       </AnimatePresence>
