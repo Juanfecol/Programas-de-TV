@@ -1,0 +1,6 @@
+{
+  "name": "Video Library",
+  "description": "Plataforma de streaming estilo Netflix con filtrado por categorías y soporte de series.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
