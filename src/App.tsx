@@ -115,6 +115,73 @@ export default function App() {
 
   const currentEpisode = selectedSeries?.playlist[currentEpisodeIndex] || null;
 
+  // Auto-play and keep native fullscreen persistent on episode change
+  useEffect(() => {
+    if (theaterMode && videoPlayerRef.current && currentEpisode?.url) {
+      const video = videoPlayerRef.current;
+      if (video.src !== currentEpisode.url) {
+        // Change src on existing video node to retain fullscreen state across episodes
+        video.src = currentEpisode.url;
+        video.load();
+      }
+      video.play().catch((err) => {
+        console.log("Autoplay blocked or failed:", err);
+      });
+    }
+  }, [currentEpisode?.url, theaterMode]);
+
+  // Request native fullscreen when theater mode starts
+  useEffect(() => {
+    if (theaterMode && videoPlayerRef.current) {
+      const video = videoPlayerRef.current;
+      
+      const enterFS = () => {
+        if (video.requestFullscreen) {
+          video.requestFullscreen().catch(() => {});
+        } else if ((video as any).webkitRequestFullscreen) {
+          (video as any).webkitRequestFullscreen();
+        } else if ((video as any).mozRequestFullScreen) {
+          (video as any).mozRequestFullScreen();
+        } else if ((video as any).msRequestFullscreen) {
+          (video as any).msRequestFullscreen();
+        }
+      };
+
+      // Delay slightly to allow rendering
+      const timer = setTimeout(enterFS, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [theaterMode]);
+
+  // Sync native fullscreen exit with theater mode state
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isCurrentlyFS = 
+        document.fullscreenElement || 
+        (document as any).webkitFullscreenElement || 
+        (document as any).mozFullScreenElement || 
+        (document as any).msFullscreenElement;
+      
+      // If the user exits native fullscreen, close theater mode
+      if (!isCurrentlyFS && theaterMode) {
+        setTheaterMode(false);
+        setDetailModalOpen(true);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
+  }, [theaterMode]);
+
   // TV / Low-power optimization: If theater mode is active, early-return the player view directly.
   // This guarantees that only one <video> tag is present in the DOM, avoiding overlay, audio conflicts, or TV crashes.
   if (theaterMode && selectedSeries && currentEpisode) {
@@ -160,7 +227,6 @@ export default function App() {
           <div className="w-full h-full flex items-center justify-center relative">
             <video 
               ref={videoPlayerRef}
-              key={currentEpisodeIndex}
               src={currentEpisode.url}
               controls
               autoPlay
