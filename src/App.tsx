@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Search, 
   Bell, 
@@ -31,13 +31,95 @@ import { Series, Episode } from './types';
 
 export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
-  const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
-  const [detailModalOpen, setDetailModalOpen] = useState<boolean>(false);
-  const [currentEpisodeIndex, setCurrentEpisodeIndex] = useState<number>(0);
-  const [theaterMode, setTheaterMode] = useState<boolean>(false);
+  const [selectedSeries, setSelectedSeries] = useState<Series | null>(() => {
+    const savedSeriesId = localStorage.getItem('lastSeriesId');
+    if (savedSeriesId) {
+      return seriesData.find(s => s.id === savedSeriesId) || null;
+    }
+    return null;
+  });
+  const [detailModalOpen, setDetailModalOpen] = useState<boolean>(() => {
+    return localStorage.getItem('detailModalOpen') === 'true';
+  });
+  const [isPlayerSidebarOpen, setIsPlayerSidebarOpen] = useState<boolean>(false);
+  const [currentEpisodeIndex, setCurrentEpisodeIndex] = useState<number>(() => {
+    const savedIndex = localStorage.getItem('lastEpisodeIndex');
+    return savedIndex ? parseInt(savedIndex, 10) : 0;
+  });
+  const [theaterMode, setTheaterMode] = useState<boolean>(() => {
+    return localStorage.getItem('theaterMode') === 'true';
+  });
   const [autoplayNext, setAutoplayNext] = useState<boolean>(true);
   const [isMuted, setIsMuted] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [currentTime, setCurrentTime] = useState<number>(0);
+  const [duration, setDuration] = useState<number>(0);
+
+  const [continueWatching, setContinueWatching] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('continueWatchingList');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const updateContinueWatching = (seriesId: string, episodeIndex: number, progress: number, durationVal: number) => {
+    try {
+      const savedListStr = localStorage.getItem('continueWatchingList');
+      let list: any[] = savedListStr ? JSON.parse(savedListStr) : [];
+      
+      // Remove any existing entry for this series to re-add at the top
+      list = list.filter((item: any) => item.seriesId !== seriesId);
+      
+      // Only keep in list if we have actually started and not completely finished (e.g. less than 2 seconds left)
+      if (durationVal > 0 && progress < durationVal - 2) {
+        list.unshift({
+          seriesId,
+          episodeIndex,
+          progress,
+          duration: durationVal,
+          lastWatched: Date.now()
+        });
+      }
+      
+      list = list.slice(0, 10);
+      
+      localStorage.setItem('continueWatchingList', JSON.stringify(list));
+      setContinueWatching(list);
+    } catch (err) {
+      console.error("Error updating continue watching list", err);
+    }
+  };
+
+  const handleRemoveFromContinueWatching = (e: React.MouseEvent, seriesId: string) => {
+    e.stopPropagation();
+    try {
+      const savedListStr = localStorage.getItem('continueWatchingList');
+      let list: any[] = savedListStr ? JSON.parse(savedListStr) : [];
+      list = list.filter((item: any) => item.seriesId !== seriesId);
+      localStorage.setItem('continueWatchingList', JSON.stringify(list));
+      setContinueWatching(list);
+    } catch (err) {
+      console.error("Error removing from continue watching", err);
+    }
+  };
+
+  const continueWatchingSeries = useMemo(() => {
+    return continueWatching
+      .map(item => {
+        const series = seriesData.find(s => s.id === item.seriesId);
+        if (!series) return null;
+        const episode = series.playlist[item.episodeIndex];
+        if (!episode) return null;
+        return {
+          ...item,
+          series,
+          episode
+        };
+      })
+      .filter(Boolean) as any[];
+  }, [continueWatching]);
   
   // Episode chunking for large playlists (e.g. Betty has 335 episodes)
   const EPISODES_PER_PAGE = 50;
@@ -103,6 +185,23 @@ export default function App() {
     }
   };
 
+  const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!videoPlayerRef.current || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(1, clickX / rect.width));
+    const newTime = percentage * duration;
+    videoPlayerRef.current.currentTime = newTime;
+    setCurrentTime(newTime);
+  };
+
+  const formatTime = (timeInSeconds: number) => {
+    if (isNaN(timeInSeconds) || !isFinite(timeInSeconds)) return "0:00";
+    const mins = Math.floor(timeInSeconds / 60);
+    const secs = Math.floor(timeInSeconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   // Open a series details modal
   const handleSelectSeriesForDetails = (series: Series) => {
     setSelectedSeries(series);
@@ -129,6 +228,43 @@ export default function App() {
       });
     }
   }, [currentEpisode?.url, theaterMode]);
+
+  // Sync progress state when currentEpisodeIndex or selectedSeries changes
+  useEffect(() => {
+    if (selectedSeries) {
+      const savedTimeStr = localStorage.getItem(`progress_${selectedSeries.id}_${currentEpisodeIndex}`);
+      if (savedTimeStr) {
+        const savedTime = parseFloat(savedTimeStr);
+        if (savedTime > 0 && !isNaN(savedTime)) {
+          setCurrentTime(savedTime);
+          return;
+        }
+      }
+    }
+    setCurrentTime(0);
+    setDuration(0);
+  }, [currentEpisodeIndex, selectedSeries]);
+
+  // Persist essential playback state to survive page reloads
+  useEffect(() => {
+    if (selectedSeries) {
+      localStorage.setItem('lastSeriesId', selectedSeries.id);
+    } else {
+      localStorage.removeItem('lastSeriesId');
+    }
+  }, [selectedSeries]);
+
+  useEffect(() => {
+    localStorage.setItem('lastEpisodeIndex', currentEpisodeIndex.toString());
+  }, [currentEpisodeIndex]);
+
+  useEffect(() => {
+    localStorage.setItem('theaterMode', theaterMode.toString());
+  }, [theaterMode]);
+
+  useEffect(() => {
+    localStorage.setItem('detailModalOpen', detailModalOpen.toString());
+  }, [detailModalOpen]);
 
   // Request native fullscreen when theater mode starts
   useEffect(() => {
@@ -186,157 +322,205 @@ export default function App() {
   // This guarantees that only one <video> tag is present in the DOM, avoiding overlay, audio conflicts, or TV crashes.
   if (theaterMode && selectedSeries && currentEpisode) {
     return (
-      <div className="fixed inset-0 z-50 bg-[#030303] text-white flex flex-col md:flex-row h-screen w-screen overflow-hidden">
+      <div className="fixed inset-0 z-50 bg-black text-white w-screen h-screen overflow-hidden flex flex-col md:flex-row">
         
-        {/* Left/Main Container: Widescreen Theater Video Player */}
-        <div className="flex-1 flex flex-col justify-between relative bg-black h-[60%] md:h-full">
+        {/* Main Player Area (takes 100% space if sidebar is closed) */}
+        <div className="flex-1 h-full relative bg-black flex items-center justify-center">
           
-          {/* Top controls HUD (visible on overlay) with pointer-events-none to prevent interception */}
-          <div className="absolute top-0 inset-x-0 p-6 bg-gradient-to-b from-black/90 via-black/40 to-transparent z-30 flex items-center justify-between pointer-events-none">
+          {/* Top Left Floating Controls HUD - Positioned in the corner, pointer-events-auto, clean, accessible */}
+          <div className="absolute top-6 left-6 z-[60] flex items-center space-x-3">
             <button 
               onClick={() => {
                 setTheaterMode(false);
                 setDetailModalOpen(true);
               }}
-              className="flex items-center space-x-2 text-sm font-semibold text-neutral-300 hover:text-white bg-black/60 backdrop-blur-md px-4 py-2 rounded-lg border border-neutral-800 transition pointer-events-auto cursor-pointer"
+              className="flex items-center space-x-2 text-xs md:text-sm font-semibold text-neutral-300 hover:text-white bg-black/80 backdrop-blur-md px-4 py-2.5 rounded-xl border border-neutral-800 hover:border-neutral-700 transition duration-200 shadow-xl cursor-pointer"
             >
-              <ChevronLeft className="w-4 h-4" />
-              <span>Salir del Reproductor</span>
+              <ChevronLeft className="w-4 h-4 text-red-500" />
+              <span>Volver a Episodios</span>
             </button>
+          </div>
 
-            <div className="text-center pointer-events-auto">
-              <p className="text-[10px] uppercase font-bold tracking-widest text-red-500">{selectedSeries.title}</p>
-              <p className="text-sm font-bold text-white line-clamp-1">{currentEpisode.titulo}</p>
-            </div>
+          {/* Top Right Playlist Toggle - Clean and elegant */}
+          <div className="absolute top-6 right-6 z-[60] flex items-center space-x-3">
+            <button 
+              onClick={() => setIsPlayerSidebarOpen(!isPlayerSidebarOpen)}
+              className="flex items-center space-x-2 text-xs md:text-sm font-semibold text-neutral-300 hover:text-white bg-black/80 backdrop-blur-md px-4 py-2.5 rounded-xl border border-neutral-800 hover:border-neutral-700 transition duration-200 shadow-xl cursor-pointer"
+            >
+              <Tv className="w-4 h-4 text-red-500" />
+              <span>{isPlayerSidebarOpen ? "Ocultar Capítulos" : "Ver Capítulos"}</span>
+            </button>
+          </div>
 
-            <div className="flex items-center space-x-3 pointer-events-auto">
-              <div className="bg-black/60 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-neutral-300 flex items-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                <span className="font-mono text-[10px]">Autoplay Siguiente</span>
-                <input 
-                  type="checkbox" 
-                  checked={autoplayNext}
-                  onChange={(e) => setAutoplayNext(e.target.checked)}
-                  className="accent-red-600 rounded cursor-pointer"
-                />
+          {/* Native Video Player - Fully unencumbered by floating overlays to prevent double-controls issues */}
+          <video 
+            ref={videoPlayerRef}
+            src={currentEpisode.url}
+            controls
+            autoPlay
+            onEnded={handlePlayNext}
+            onTimeUpdate={(e) => {
+              const time = e.currentTarget.currentTime;
+              setCurrentTime(time);
+              if (selectedSeries) {
+                localStorage.setItem(`progress_${selectedSeries.id}_${currentEpisodeIndex}`, time.toString());
+                updateContinueWatching(selectedSeries.id, currentEpisodeIndex, time, duration || e.currentTarget.duration);
+              }
+            }}
+            onDurationChange={(e) => setDuration(e.currentTarget.duration)}
+            onLoadedMetadata={(e) => {
+              const videoDuration = e.currentTarget.duration;
+              setDuration(videoDuration);
+              if (selectedSeries) {
+                const savedTimeStr = localStorage.getItem(`progress_${selectedSeries.id}_${currentEpisodeIndex}`);
+                if (savedTimeStr) {
+                  const savedTime = parseFloat(savedTimeStr);
+                  if (savedTime > 0 && !isNaN(savedTime) && savedTime < videoDuration - 1) {
+                    e.currentTarget.currentTime = savedTime;
+                    setCurrentTime(savedTime);
+                    updateContinueWatching(selectedSeries.id, currentEpisodeIndex, savedTime, videoDuration);
+                  }
+                }
+              }
+            }}
+            className="w-full h-full object-contain focus:outline-none"
+          />
+
+          {/* Custom Elegant Progress Bar Visual at the absolute bottom */}
+          <div 
+            onClick={handleProgressBarClick}
+            className="absolute bottom-0 left-0 right-0 h-2 bg-black/40 hover:bg-black/80 backdrop-blur-xs z-40 cursor-pointer flex items-end group/progress transition-colors duration-200"
+          >
+            <div className="w-full h-1 group-hover/progress:h-2 bg-neutral-800 transition-all duration-150 relative">
+              <div 
+                className="h-full bg-red-600 relative transition-all duration-75"
+                style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+              >
+                {/* Glow Thumb */}
+                <span className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-red-500 shadow-md shadow-red-500/80 scale-0 group-hover/progress:scale-100 transition-transform duration-150 translate-x-1/2" />
+              </div>
+
+              {/* Float Time Tooltip */}
+              <div className="absolute right-4 -top-8 bg-black/95 text-white text-[10px] font-mono px-2.5 py-1 rounded-lg border border-neutral-800 opacity-0 group-hover/progress:opacity-100 transition-opacity duration-200 pointer-events-none shadow-xl flex items-center space-x-1.5">
+                <span className="text-red-500 font-bold">{formatTime(currentTime)}</span>
+                <span className="text-neutral-600">/</span>
+                <span className="text-neutral-400">{formatTime(duration)}</span>
               </div>
             </div>
           </div>
-
-          {/* Native Video Player - Fully unencumbered by floating elements */}
-          <div className="w-full h-full flex items-center justify-center relative">
-            <video 
-              ref={videoPlayerRef}
-              src={currentEpisode.url}
-              controls
-              autoPlay
-              onEnded={handlePlayNext}
-              className="w-full h-full object-contain focus:outline-none"
-            />
-          </div>
         </div>
 
-        {/* Right Side Control Center: Quick navigation Sidebar */}
-        <div className="w-full md:w-[350px] bg-neutral-950 border-t md:border-t-0 md:border-l border-neutral-900 flex flex-col h-[40%] md:h-full z-10">
-          <div className="p-4 border-b border-neutral-900 bg-neutral-900/30 space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center space-x-1.5">
-                <ListOrdered className="w-3.5 h-3.5 text-red-500" />
-                <span>Contenido de la serie</span>
-              </h4>
-              <span className="text-[10px] bg-red-600/20 text-red-500 font-bold px-2 py-0.5 rounded">
-                Episodio {currentEpisodeIndex + 1}/{selectedSeries.playlist.length}
-              </span>
-            </div>
-
-            {/* Miniature Search */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-neutral-500" />
-              <input 
-                type="text"
-                placeholder="Filtrar capítulos..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-neutral-900 border border-neutral-800 text-[11px] rounded-lg pl-8 pr-4 py-1.5 w-full focus:outline-none focus:border-red-600 transition text-white"
-              />
-            </div>
-          </div>
-
-          {/* Mini sidebar playlist */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
-            {filteredEpisodes.map((ep) => {
-              const playlistIndex = selectedSeries.playlist.findIndex(p => p.episodio === ep.episodio);
-              const isActive = playlistIndex === currentEpisodeIndex;
-
-              return (
-                <div 
-                  key={ep.episodio}
-                  onClick={() => setCurrentEpisodeIndex(playlistIndex)}
-                  className={`p-2.5 rounded-lg border cursor-pointer flex items-center space-x-3 transition duration-150 ${
-                    isActive 
-                      ? 'border-red-600 bg-red-950/20 shadow-md' 
-                      : 'border-neutral-900 bg-neutral-900/50 hover:bg-neutral-900 hover:border-neutral-800'
-                  }`}
-                >
-                  <div className={`w-8 h-8 rounded flex items-center justify-center font-mono font-bold text-[11px] shrink-0 ${
-                    isActive ? 'bg-red-600 text-white' : 'bg-neutral-800 text-neutral-400'
-                  }`}>
-                    {ep.episodio}
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <p className={`text-xs font-semibold truncate ${isActive ? 'text-red-500' : 'text-neutral-200'}`}>
-                      {ep.titulo}
-                    </p>
-                    <p className="text-[9px] text-neutral-500">Video MP4 • 1080p</p>
-                  </div>
-
-                  {isActive && (
-                    <span className="w-2 h-2 rounded-full bg-red-600 animate-ping shrink-0" />
-                  )}
+        {/* Slide-over/Sidebar Control Center: Quick navigation Sidebar (toggled dynamically) */}
+        <AnimatePresence>
+          {isPlayerSidebarOpen && (
+            <motion.div 
+              initial={{ x: 350, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: 350, opacity: 0 }}
+              transition={{ type: "tween", duration: 0.3 }}
+              className="w-full md:w-[350px] bg-neutral-950 border-t md:border-t-0 md:border-l border-neutral-900 flex flex-col h-[40%] md:h-full z-50 shrink-0 shadow-2xl relative"
+            >
+              <div className="p-4 border-b border-neutral-900 bg-neutral-900/30 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center space-x-1.5">
+                    <ListOrdered className="w-3.5 h-3.5 text-red-500" />
+                    <span>Contenido de la serie</span>
+                  </h4>
+                  <span className="text-[10px] bg-red-600/20 text-red-500 font-bold px-2 py-0.5 rounded">
+                    Episodio {currentEpisodeIndex + 1}/{selectedSeries.playlist.length}
+                  </span>
                 </div>
-              );
-            })}
-          </div>
 
-          {/* Dedicated Playback Controller Panel in sidebar footer (No overlays!) */}
-          <div className="p-4 border-t border-neutral-900 bg-black/60 space-y-3">
-            <div className="text-xs space-y-1">
-              <span className="text-neutral-500">Reproduciendo ahora:</span>
-              <p className="font-bold text-white line-clamp-1">{currentEpisode.titulo}</p>
-            </div>
+                {/* Miniature Search */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-neutral-500" />
+                  <input 
+                    type="text"
+                    placeholder="Filtrar capítulos..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-neutral-900 border border-neutral-800 text-[11px] rounded-lg pl-8 pr-4 py-1.5 w-full focus:outline-none focus:border-red-600 transition text-white"
+                  />
+                </div>
+              </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-neutral-900/50">
-              <button 
-                onClick={handlePlayPrev} 
-                disabled={currentEpisodeIndex === 0}
-                className="flex items-center justify-center p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 text-neutral-300 hover:text-white transition cursor-pointer"
-                title="Anterior"
-              >
-                <Rewind className="w-4 h-4 fill-current" />
-              </button>
+              {/* Mini sidebar playlist */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                {filteredEpisodes.map((ep) => {
+                  const playlistIndex = selectedSeries.playlist.findIndex(p => p.episodio === ep.episodio);
+                  const isActive = playlistIndex === currentEpisodeIndex;
 
-              <button 
-                onClick={handleRestartEpisode} 
-                className="flex items-center justify-center p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white transition cursor-pointer"
-                title="Reiniciar Capítulo"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </button>
+                  return (
+                    <div 
+                      key={ep.episodio}
+                      onClick={() => setCurrentEpisodeIndex(playlistIndex)}
+                      className={`p-2.5 rounded-lg border cursor-pointer flex items-center space-x-3 transition duration-150 ${
+                        isActive 
+                          ? 'border-red-600 bg-red-950/20 shadow-md' 
+                          : 'border-neutral-900 bg-neutral-900/50 hover:bg-neutral-900 hover:border-neutral-800'
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded flex items-center justify-center font-mono font-bold text-[11px] shrink-0 ${
+                        isActive ? 'bg-red-600 text-white' : 'bg-neutral-800 text-neutral-400'
+                      }`}>
+                        {ep.episodio}
+                      </div>
 
-              <span className="text-xs font-mono text-neutral-400 font-semibold">Cap. {currentEpisode.episodio}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-xs font-semibold truncate ${isActive ? 'text-red-500' : 'text-neutral-200'}`}>
+                          {ep.titulo}
+                        </p>
+                        <p className="text-[9px] text-neutral-500">Video MP4 • 1080p</p>
+                      </div>
 
-              <button 
-                onClick={handlePlayNext} 
-                disabled={currentEpisodeIndex === selectedSeries.playlist.length - 1}
-                className="flex items-center justify-center p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 text-neutral-300 hover:text-white transition cursor-pointer"
-                title="Siguiente"
-              >
-                <FastForward className="w-4 h-4 fill-current" />
-              </button>
-            </div>
-          </div>
-        </div>
+                      {isActive && (
+                        <span className="w-2 h-2 rounded-full bg-red-600 animate-ping shrink-0" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Sidebar footer controls */}
+              <div className="p-4 border-t border-neutral-900 bg-black/60 space-y-3">
+                <div className="text-xs space-y-1">
+                  <span className="text-neutral-500 font-medium">Reproduciendo ahora:</span>
+                  <p className="font-bold text-white line-clamp-1">{currentEpisode.titulo}</p>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-neutral-900/50">
+                  <button 
+                    onClick={handlePlayPrev} 
+                    disabled={currentEpisodeIndex === 0}
+                    className="flex items-center justify-center p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 text-neutral-300 hover:text-white transition cursor-pointer"
+                    title="Anterior"
+                  >
+                    <Rewind className="w-4 h-4 fill-current" />
+                  </button>
+
+                  <button 
+                    onClick={handleRestartEpisode} 
+                    className="flex items-center justify-center p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white transition cursor-pointer"
+                    title="Reiniciar Capítulo"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+
+                  <span className="text-xs font-mono text-neutral-400 font-semibold">Cap. {currentEpisode.episodio}</span>
+
+                  <button 
+                    onClick={handlePlayNext} 
+                    disabled={currentEpisodeIndex === selectedSeries.playlist.length - 1}
+                    className="flex items-center justify-center p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 text-neutral-300 hover:text-white transition cursor-pointer"
+                    title="Siguiente"
+                  >
+                    <FastForward className="w-4 h-4 fill-current" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
       </div>
     );
@@ -468,8 +652,8 @@ export default function App() {
               className="bg-neutral-900/60 rounded-2xl p-4 border border-neutral-800/80 backdrop-blur-lg shadow-2xl relative overflow-hidden group hover:border-red-600/30 transition-all duration-300"
             >
               <div className="aspect-video w-full rounded-xl overflow-hidden bg-black relative">
-                {/* Embedded preview playing in loop & muted (only when modal is NOT open to prevent multi-video decoding conflicts) */}
-                {!detailModalOpen ? (
+                {/* Embedded preview playing in loop & muted (only when modal and theater mode are NOT active to prevent multi-video decoding conflicts) */}
+                {!detailModalOpen && !theaterMode ? (
                   <video 
                     src={seriesData[0].playlist[0].url}
                     className="w-full h-full object-cover"
@@ -491,7 +675,7 @@ export default function App() {
                   <span>VISTA PREVIA</span>
                 </div>
 
-                {!detailModalOpen && (
+                {!detailModalOpen && !theaterMode && (
                   <button 
                     onClick={() => setIsMuted(!isMuted)}
                     className="absolute bottom-3 right-3 p-2 bg-black/70 rounded-full text-white hover:bg-red-600 transition"
@@ -520,6 +704,106 @@ export default function App() {
       {/* Main Browse Section */}
       <main id="series-grid" className="max-w-7xl mx-auto px-6 md:px-12 py-16 space-y-12 relative z-20">
         
+        {/* Continuar Viendo Section */}
+        {continueWatchingSeries.length > 0 && (
+          <div className="space-y-6 border-b border-neutral-900 pb-12">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <Clock className="w-6 h-6 text-red-500" />
+                <h2 className="text-2xl md:text-3xl font-black tracking-tight font-display text-white">
+                  Continuar viendo
+                </h2>
+              </div>
+              <span className="text-[10px] bg-red-600/10 text-red-500 font-extrabold px-3 py-1 rounded-full uppercase tracking-widest border border-red-500/10">
+                Historial de progreso
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {continueWatchingSeries.map((item) => {
+                const percent = item.duration > 0 ? Math.round((item.progress / item.duration) * 100) : 0;
+                
+                return (
+                  <div 
+                    key={item.seriesId}
+                    onClick={() => {
+                      setSelectedSeries(item.series);
+                      setCurrentEpisodeIndex(item.episodeIndex);
+                      setTheaterMode(true);
+                      setDetailModalOpen(false);
+                    }}
+                    className="group bg-neutral-950 rounded-xl border border-neutral-900/80 overflow-hidden cursor-pointer hover:border-red-600/40 hover:shadow-xl hover:shadow-red-950/5 transition-all duration-300 relative flex flex-col h-full"
+                  >
+                    {/* Thumbnail with overlay progress bar */}
+                    <div className="relative aspect-video w-full overflow-hidden bg-neutral-900">
+                      <img 
+                        src={item.series.thumbnail} 
+                        alt={item.series.title} 
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-104"
+                        referrerPolicy="no-referrer"
+                      />
+                      
+                      {/* Dark gradient overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent opacity-80 group-hover:opacity-90 transition-opacity duration-300" />
+
+                      {/* Play overlay icon on hover */}
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <div className="w-10 h-10 rounded-full bg-red-600 text-white flex items-center justify-center shadow-md shadow-red-600/50 scale-90 group-hover:scale-100 transition-transform duration-300">
+                          <Play className="w-4 h-4 fill-current text-white ml-0.5" />
+                        </div>
+                      </div>
+
+                      {/* Manual delete (Remove from Continue Watching) */}
+                      <button 
+                        onClick={(e) => handleRemoveFromContinueWatching(e, item.seriesId)}
+                        className="absolute top-2.5 right-2.5 p-1.5 bg-black/60 hover:bg-red-600 rounded-full border border-white/5 text-neutral-400 hover:text-white transition duration-200 z-30"
+                        title="Quitar de la lista"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Miniature Bottom Progress bar */}
+                      <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10">
+                        <div 
+                          className="h-full bg-red-600"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Meta info */}
+                    <div className="p-4 flex-1 flex flex-col justify-between space-y-3 bg-neutral-950">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[10px] text-neutral-500 font-bold uppercase tracking-wider">
+                          <span>{item.series.category}</span>
+                          <span className="text-red-500">Capítulo {item.episode.episodio}</span>
+                        </div>
+                        <h4 className="font-bold text-sm text-white line-clamp-1 group-hover:text-red-500 transition duration-200">
+                          {item.series.title}
+                        </h4>
+                        <p className="text-xs text-neutral-400 line-clamp-1 italic">
+                          "{item.episode.titulo}"
+                        </p>
+                      </div>
+
+                      {/* Bottom row percentage & action */}
+                      <div className="flex items-center justify-between text-[11px] border-t border-neutral-900 pt-2.5 mt-auto">
+                        <span className="text-neutral-500 font-medium">
+                          {percent}% completado
+                        </span>
+                        <span className="text-red-500 font-bold group-hover:underline flex items-center space-x-1">
+                          <span>Reanudar</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Category Filters */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-neutral-900 pb-6">
           <div className="space-y-1.5">
@@ -668,47 +952,53 @@ export default function App() {
                     </p>
                   </div>
 
-                  {/* Dynamic Preview Container */}
+                  {/* Selected Episode Action Card */}
                   <div className="bg-neutral-900 p-4 rounded-xl border border-neutral-800 space-y-3">
                     <div className="flex justify-between items-center">
                       <span className="text-xs font-bold text-red-500 flex items-center">
                         <Sparkles className="w-3.5 h-3.5 mr-1" />
-                        PREVISUALIZAR
+                        CAPÍTULO SELECCIONADO
                       </span>
-                      <span className="text-[10px] text-neutral-500 font-mono">E{currentEpisodeIndex + 1}</span>
+                      <span className="text-[10px] text-neutral-500 font-mono">Episodio {selectedSeries.playlist[currentEpisodeIndex]?.episodio}</span>
                     </div>
 
-                    <div className="aspect-video bg-black rounded-lg overflow-hidden relative">
-                      <video 
-                        key={currentEpisodeIndex}
-                        src={selectedSeries.playlist[currentEpisodeIndex]?.url}
-                        className="w-full h-full object-cover"
-                        autoPlay
-                        muted={isMuted}
-                        loop
-                        playsInline
+                    <div 
+                      onClick={() => {
+                        setTheaterMode(true);
+                        setDetailModalOpen(false);
+                      }}
+                      className="aspect-video bg-neutral-950 rounded-lg overflow-hidden relative cursor-pointer group/card border border-neutral-800/80 hover:border-red-600/50 transition-all duration-300"
+                    >
+                      <img 
+                        src={selectedSeries.thumbnail}
+                        className="w-full h-full object-cover opacity-60 group-hover/card:scale-105 transition-transform duration-500"
+                        alt={selectedSeries.title}
+                        referrerPolicy="no-referrer"
                       />
-                      <button 
-                        onClick={() => setIsMuted(!isMuted)}
-                        className="absolute bottom-2 right-2 p-1.5 bg-black/80 rounded-full text-white hover:bg-red-600 transition"
-                      >
-                        {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-                      </button>
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center group-hover/card:bg-black/20 transition-colors duration-300">
+                        <div className="w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg shadow-red-600/50 scale-95 group-hover/card:scale-105 transition-transform duration-300">
+                          <Play className="w-6 h-6 fill-current text-white ml-1" />
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="space-y-1">
-                      <p className="text-xs font-semibold text-white line-clamp-1">
-                        {selectedSeries.playlist[currentEpisodeIndex]?.titulo}
-                      </p>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-[10px] uppercase font-bold text-neutral-500 tracking-wider">Título del capítulo</p>
+                        <p className="text-sm font-bold text-white line-clamp-1 mt-0.5">
+                          {selectedSeries.playlist[currentEpisodeIndex]?.titulo}
+                        </p>
+                      </div>
+
                       <button 
                         onClick={() => {
                           setTheaterMode(true);
                           setDetailModalOpen(false);
                         }}
-                        className="w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-xs font-bold transition flex items-center justify-center space-x-1"
+                        className="w-full py-3 bg-red-600 hover:bg-red-700 active:scale-98 text-white rounded-lg text-xs font-bold transition duration-150 flex items-center justify-center space-x-2 cursor-pointer shadow-lg shadow-red-600/25"
                       >
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                        <span>Ver en Pantalla Completa</span>
+                        <Play className="w-4 h-4 fill-current" />
+                        <span>REPRODUCIR CAPÍTULO</span>
                       </button>
                     </div>
                   </div>
