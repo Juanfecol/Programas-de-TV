@@ -1,7 +1,16 @@
 import { Series } from './types';
 import { bettyPlaylist } from './bettyPlaylist';
+import { chavoPlaylist } from './chavoPlaylist';
 
 export const seriesData: Series[] = [
+  {
+    id: 'chavo',
+    title: 'El Chavo del 8',
+    description: 'La inolvidable comedia que narra las aventuras y malentendidos de un niño huérfano y sus singulares vecinos en una divertida vecindad mexicana.',
+    thumbnail: 'https://images.unsplash.com/photo-1518156677180-95a2893f3e9f?q=80&w=600&h=337&auto=format&fit=crop',
+    category: 'Comedia',
+    playlist: chavoPlaylist
+  },
   {
     id: 'betty',
     title: 'Yo soy Betty, la fea (1999)',
