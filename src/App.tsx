@@ -91,16 +91,28 @@ export default function App() {
     }
   }, [selectedSeries, currentEpisodeIndex]);
 
-  // Handle media source change safely
+  // Handle media source change safely and handle programmatic playback
   useEffect(() => {
     if (videoPlayerRef.current && currentEpisode) {
       const video = videoPlayerRef.current;
       const targetSrc = getVideoSrc(currentEpisode.url);
       const absoluteTargetSrc = new URL(targetSrc, window.location.href).href;
       
+      const playVideo = () => {
+        video.play().catch((err) => {
+          console.log("Autoplay was prevented or interrupted by browser. User must click play.", err);
+        });
+      };
+
       if (video.src !== absoluteTargetSrc) {
         video.src = absoluteTargetSrc;
         video.load();
+        
+        // Wait for metadata/load so we don't encounter race conditions during load()
+        video.addEventListener("loadedmetadata", playVideo, { once: true });
+      } else {
+        // Source is the same, just play in case it was paused
+        playVideo();
       }
     }
   }, [currentEpisode]);
@@ -339,278 +351,165 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3 }}
-              className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start"
+              className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start"
             >
               
-              {/* LEFT COLUMN: Dedicated Interactive Video Player */}
-              <div className="lg:col-span-2 space-y-5">
+              {/* MAIN PLAYER AREA */}
+              <div className="lg:col-span-3 space-y-4">
                 
-                {/* Back button */}
-                <button 
-                  onClick={() => setSelectedSeries(null)}
-                  className="inline-flex items-center space-x-2 text-xs font-bold text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800 hover:border-neutral-700 px-4 py-2.5 rounded-xl transition duration-150 cursor-pointer"
+                {/* Cinematic Player Frame */}
+                <div 
+                  className="bg-black relative aspect-video group"
                 >
-                  <ChevronLeft className="w-4 h-4" />
-                  <span>Volver al Catálogo</span>
-                </button>
+                  <video 
+                    key={currentEpisodeIndex}
+                    ref={videoPlayerRef}
+                    src={currentEpisode?.url ? encodeURI(decodeURIComponent(currentEpisode.url)) : ''}
+                    controls
+                    autoPlay
+                    onPlay={(e) => {
+                      const container = e.currentTarget.parentElement;
+                      if (container && container.requestFullscreen) {
+                        container.requestFullscreen().catch(err => console.warn("Fullscreen failed", err));
+                      }
+                    }}
+                    onEnded={() => {
+                      if (autoplayNext) {
+                        playNextEpisode();
+                      }
+                    }}
+                    onTimeUpdate={(e) => {
+                      const time = e.currentTarget.currentTime;
+                      setCurrentTime(time);
+                      if (selectedSeries && Math.floor(time) % 2 === 0) {
+                        localStorage.setItem(`progress_${selectedSeries.id}_${currentEpisodeIndex}`, time.toString());
+                      }
+                    }}
+                    onLoadedMetadata={(e) => {
+                      const videoDuration = e.currentTarget.duration;
+                      setDuration(videoDuration);
+                      const savedTimeStr = localStorage.getItem(`progress_${selectedSeries.id}_${currentEpisodeIndex}`);
+                      if (savedTimeStr) {
+                        const savedTime = parseFloat(savedTimeStr);
+                        if (savedTime > 0 && savedTime < videoDuration - 5) {
+                          e.currentTarget.currentTime = savedTime;
+                        }
+                      }
+                    }}
+                    onError={(e) => {
+                      const videoElement = e.currentTarget;
+                      console.error("Video error, attempting retry...", videoElement.error?.message || e.type);
+                      // Basic retry logic
+                      setTimeout(() => {
+                        videoElement.load();
+                        videoElement.play().catch(console.error);
+                      }, 2000);
+                    }}
+                    className="w-full h-full"
+                    title={currentEpisode?.titulo}
+                  />
 
-                {/* Dark Cinematic Player Frame */}
-                <div className="bg-neutral-950 border border-neutral-900 rounded-3xl overflow-hidden shadow-2xl relative">
+                  {/* Episode Navigation Overlays */}
+                  {currentEpisodeIndex > 0 && (
+                    <div className="absolute inset-y-0 left-0 flex items-center pl-6 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
+                      <button
+                        onClick={playPrevEpisode}
+                        className="flex items-center space-x-2 bg-black/50 hover:bg-black/70 backdrop-blur-md text-white px-4 py-3 rounded-full transition duration-200 pointer-events-auto"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                        <span className="font-semibold text-sm">Anterior</span>
+                      </button>
+                    </div>
+                  )}
                   
-                  {/* Top-bar HUD inside the Player area */}
-                  <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-center pointer-events-none">
-                    <span className="bg-neutral-950/90 backdrop-blur-md border border-neutral-800 text-neutral-300 font-bold text-[10px] tracking-wider uppercase px-3 py-1.5 rounded-full shadow-lg">
-                      {selectedSeries.title} • Capítulo {currentEpisode?.episodio}
-                    </span>
-                    
-                    <span className="bg-neutral-950/90 backdrop-blur-md border border-neutral-800 text-[10px] tracking-wider text-red-500 font-extrabold uppercase px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
-                      <span>Streaming Activo</span>
-                    </span>
-                  </div>
+                  {currentEpisodeIndex < selectedSeries.playlist.length - 1 && (
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-6 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
+                      <button
+                        onClick={playNextEpisode}
+                        className="flex items-center space-x-2 bg-black/50 hover:bg-black/70 backdrop-blur-md text-white px-4 py-3 rounded-full transition duration-200 pointer-events-auto"
+                      >
+                        <span className="font-semibold text-sm">Siguiente</span>
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
 
-                  {/* Responsive aspect ratio container */}
-                  <div className="aspect-video w-full bg-black flex items-center justify-center relative">
-                    <video 
-                      ref={videoPlayerRef}
-                      controls
-                      autoPlay
-                      onEnded={() => {
-                        if (autoplayNext) {
-                          playNextEpisode();
-                        }
-                      }}
-                      onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                      onDurationChange={(e) => setDuration(e.currentTarget.duration)}
-                      onLoadedMetadata={(e) => {
-                        const videoDuration = e.currentTarget.duration;
-                        setDuration(videoDuration);
-                        const savedTimeStr = localStorage.getItem(`progress_${selectedSeries.id}_${currentEpisodeIndex}`);
-                        if (savedTimeStr) {
-                          const savedTime = parseFloat(savedTimeStr);
-                          if (savedTime > 0 && savedTime < videoDuration - 5) {
-                            e.currentTarget.currentTime = savedTime;
-                          }
-                        }
-                      }}
-                      className="w-full h-full object-contain"
-                      title={currentEpisode?.titulo}
-                    />
-                  </div>
-
-                  {/* Active episode description & metadata footer */}
-                  <div className="p-6 bg-neutral-900/80 border-t border-neutral-900 space-y-4">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                      <div>
-                        <span className="text-xs text-red-500 font-extrabold uppercase tracking-widest">
-                          REPRODUCIENDO AHORA:
-                        </span>
-                        <h2 className="text-xl font-bold text-white mt-1">
-                          Capítulo {currentEpisode?.episodio}: {currentEpisode?.titulo}
-                        </h2>
-                      </div>
-
-                      {/* Autoplay toggle */}
-                      <label className="flex items-center space-x-2.5 cursor-pointer select-none">
+                {/* Video Metadata */}
+                <div className="space-y-2 p-2">
+                  <h1 className="text-xl font-semibold text-white">
+                    {selectedSeries.title} - Capítulo {currentEpisode?.episodio}: {currentEpisode?.titulo}
+                  </h1>
+                  <div className="flex items-center justify-between">
+                     <span className="text-sm text-neutral-400">Canal: Videoteca Clásica</span>
+                     <label className="flex items-center space-x-2 cursor-pointer text-neutral-400 hover:text-white">
                         <input 
                           type="checkbox"
                           checked={autoplayNext}
                           onChange={(e) => setAutoplayNext(e.target.checked)}
-                          className="w-4.5 h-4.5 rounded text-red-600 focus:ring-red-500 bg-neutral-950 border-neutral-800"
+                          className="rounded border-neutral-700 bg-neutral-800 text-red-600 focus:ring-red-600"
                         />
-                        <span className="text-xs font-bold text-neutral-300">Auto-reproducir siguiente</span>
+                        <span className="text-xs">Auto-reproducir</span>
                       </label>
-                    </div>
-
-                    <p className="text-xs text-neutral-400 font-light leading-relaxed">
-                      Estás sintonizando la videoteca oficial de clásicos. El reproductor utiliza controles nativos de tu navegador para brindar máxima velocidad, compatibilidad con subtítulos/audio y menor consumo de batería.
-                    </p>
                   </div>
                 </div>
 
-                {/* PLAYBACK ASSISTANCE PANEL: Crucial fix for .avi files */}
-                <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 space-y-5 shadow-xl">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <HelpCircle className="w-5 h-5 text-amber-500" />
-                      <h4 className="text-sm font-bold text-white">¿Problemas con la reproducción o pausas?</h4>
-                    </div>
-                    <button 
-                      onClick={() => setShowTroubleshoot(!showTroubleshoot)}
-                      className="text-xs font-bold text-neutral-400 hover:text-white underline cursor-pointer"
-                    >
-                      {showTroubleshoot ? 'Ocultar info' : 'Saber por qué'}
-                    </button>
-                  </div>
-
-                  {showTroubleshoot && (
-                    <motion.p 
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      className="text-xs text-neutral-400 leading-relaxed font-light border-l-2 border-amber-500/50 pl-3 pt-1"
-                    >
-                      Los capítulos clásicos están almacenados en formato <code className="bg-neutral-950 px-1 py-0.5 rounded text-amber-400">.avi</code>. Dado que los navegadores modernos no soportan AVI de forma nativa, nuestro servidor convierte el video en tiempo real. Esto consume mucha CPU; si experimentas pausas, te aconsejamos descargar el archivo para verlo perfectamente con VLC Media Player.
-                    </motion.p>
-                  )}
-
-                  {/* Actions Bar */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Download button */}
-                    <a 
-                      href={currentEpisode?.url} 
-                      download 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center space-x-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white text-xs font-bold py-3.5 px-4 rounded-xl shadow-lg transition duration-150 cursor-pointer text-center"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Descargar Capítulo Directo</span>
-                    </a>
-
-                    {/* Copy direct video URL button for VLC */}
-                    <button 
-                      onClick={handleCopyLink}
-                      className="flex items-center justify-center space-x-2 bg-neutral-950 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 hover:border-neutral-700 text-xs font-bold py-3.5 px-4 rounded-xl transition duration-150 cursor-pointer"
-                    >
-                      {copied ? (
-                        <>
-                          <Check className="w-4 h-4 text-green-500" />
-                          <span className="text-green-400">¡Copiado al portapapeles!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-4 h-4 text-neutral-400" />
-                          <span>Copiar Enlace para VLC / Externo</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  <div className="text-[11px] text-neutral-500 text-center">
-                    Sugerencia: Abre VLC, presiona <kbd className="bg-neutral-950 px-1 py-0.5 rounded">Ctrl + N</kbd> (o comando + N), pega el enlace copiado y disfruta el capítulo sin un solo corte.
-                  </div>
+                {/* Actions Bar */}
+                <div className="flex items-center gap-4 p-2">
+                  <a 
+                    href={currentEpisode?.url} 
+                    download 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center space-x-2 bg-neutral-800 hover:bg-neutral-700 text-white text-sm font-medium py-2 px-4 rounded transition duration-150"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Descargar</span>
+                  </a>
+                  <button 
+                    onClick={handleCopyLink}
+                    className="flex items-center space-x-2 bg-neutral-800 hover:bg-neutral-700 text-white text-sm font-medium py-2 px-4 rounded transition duration-150"
+                  >
+                    <Copy className="w-4 h-4" />
+                    <span>{copied ? 'Copiado!' : 'Compartir'}</span>
+                  </button>
                 </div>
-
               </div>
 
-              {/* RIGHT COLUMN: Interactive Searchable Episode Directory */}
-              <div className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[800px]">
+              {/* SIDEBAR: Playlist */}
+              <div className="bg-black border-l border-neutral-800 flex flex-col h-[600px]">
+                <div className="p-4 border-b border-neutral-800">
+                  <h3 className="font-semibold text-white">Próximos capítulos</h3>
+                </div>
                 
-                {/* Search Bar & Header */}
-                <div className="p-5 border-b border-neutral-800 space-y-3 bg-neutral-900/50">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black text-white uppercase tracking-widest">
-                      EPISODIOS DISPONIBLES
-                    </span>
-                    <span className="text-[11px] bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800 font-bold text-neutral-400">
-                      {selectedSeries.playlist.length} en Total
-                    </span>
-                  </div>
+                <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                  {filteredEpisodes.map((ep, idx) => {
+                    const actualIdx = selectedSeries.playlist.findIndex(p => p.episodio === ep.episodio);
+                    const isActive = actualIdx === currentEpisodeIndex;
 
-                  {/* Episode Specific Search Input */}
-                  <div className="relative">
-                    <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-neutral-500" />
-                    <input 
-                      type="text"
-                      placeholder="Buscar capítulo o nº..."
-                      value={episodeSearchQuery}
-                      onChange={(e) => setEpisodeSearchQuery(e.target.value)}
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-9 pr-8 py-2 text-xs focus:outline-none focus:border-red-600 focus:ring-1 focus:ring-red-600 text-white"
-                    />
-                    {episodeSearchQuery && (
-                      <button 
-                        onClick={() => setEpisodeSearchQuery('')}
-                        className="absolute right-2.5 top-2.5 text-neutral-500 hover:text-white"
+                    return (
+                      <button
+                        key={ep.episodio}
+                        onClick={() => setCurrentEpisodeIndex(actualIdx)}
+                        className={`w-full text-left p-2 rounded-lg flex items-center gap-3 transition-colors ${
+                          isActive 
+                            ? 'bg-neutral-800 text-white' 
+                            : 'hover:bg-neutral-800/50 text-neutral-400 hover:text-neutral-200'
+                        }`}
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <div className="w-20 h-12 bg-neutral-950 rounded flex items-center justify-center shrink-0">
+                          <Play className="w-4 h-4 opacity-50" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h5 className="text-sm truncate font-medium">
+                            Cap. {ep.episodio}: {ep.titulo}
+                          </h5>
+                          <p className="text-xs opacity-70">El Chavo</p>
+                        </div>
                       </button>
-                    )}
-                  </div>
+                    );
+                  })}
                 </div>
-
-                {/* Scrollable list of episodes */}
-                <div className="flex-1 overflow-y-auto divide-y divide-neutral-950 p-2 space-y-1.5 custom-scrollbar">
-                  {filteredEpisodes.length === 0 ? (
-                    <div className="p-8 text-center space-y-2">
-                      <Search className="w-8 h-8 text-neutral-600 mx-auto" />
-                      <p className="text-xs text-neutral-400">No se encontraron episodios.</p>
-                    </div>
-                  ) : (
-                    filteredEpisodes.map((ep, idx) => {
-                      // Find actual index in the unfiltered playlist
-                      const actualIdx = selectedSeries.playlist.findIndex(p => p.episodio === ep.episodio);
-                      const isActive = actualIdx === currentEpisodeIndex;
-
-                      return (
-                        <button
-                          key={ep.episodio}
-                          onClick={() => {
-                            setCurrentEpisodeIndex(actualIdx);
-                            // Scroll to top of page on mobile to instantly see video play
-                            if (window.innerWidth < 1024) {
-                              window.scrollTo({ top: 0, behavior: 'smooth' });
-                            }
-                          }}
-                          className={`w-full text-left p-3.5 rounded-2xl flex items-center gap-3.5 transition-all duration-200 group cursor-pointer ${
-                            isActive 
-                              ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-lg shadow-red-600/10 font-bold' 
-                              : 'hover:bg-neutral-800/80 text-neutral-300'
-                          }`}
-                        >
-                          {/* Play Status indicator */}
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
-                            isActive 
-                              ? 'bg-white text-red-600 scale-105' 
-                              : 'bg-neutral-950 border border-neutral-800 text-neutral-400 group-hover:bg-red-600 group-hover:text-white group-hover:border-red-600'
-                          }`}>
-                            <Play className="w-3 h-3 fill-current ml-0.5" />
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            <span className={`text-[10px] uppercase font-black tracking-wider block ${
-                              isActive ? 'text-white' : 'text-neutral-500'
-                            }`}>
-                              EPISODIO {ep.episodio}
-                            </span>
-                            <h5 className="text-xs truncate font-medium tracking-wide mt-0.5">
-                              {ep.titulo}
-                            </h5>
-                          </div>
-
-                          <div className="text-[10px] font-bold text-neutral-500 shrink-0">
-                            {isActive ? 'Viendo' : 'Ver'}
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-
-                {/* Quick pagination helper footer */}
-                <div className="p-4 border-t border-neutral-800 bg-neutral-900/50 flex justify-between items-center text-xs text-neutral-400">
-                  <button 
-                    disabled={currentEpisodeIndex === 0}
-                    onClick={playPrevEpisode}
-                    className="flex items-center space-x-1 hover:text-white disabled:opacity-30 disabled:hover:text-neutral-400 cursor-pointer"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                    <span>Anterior</span>
-                  </button>
-
-                  <span className="font-bold">
-                    Capítulo {currentEpisodeIndex + 1} de {selectedSeries.playlist.length}
-                  </span>
-
-                  <button 
-                    disabled={currentEpisodeIndex === selectedSeries.playlist.length - 1}
-                    onClick={playNextEpisode}
-                    className="flex items-center space-x-1 hover:text-white disabled:opacity-30 disabled:hover:text-neutral-400 cursor-pointer"
-                  >
-                    <span>Siguiente</span>
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-
               </div>
 
             </motion.div>
