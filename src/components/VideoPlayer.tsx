@@ -86,25 +86,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* Navigation Overlays */}
       {hasPrev && (
-        <div className="absolute inset-y-0 left-0 flex items-center pl-4 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
+        <div className="absolute inset-y-0 left-0 flex items-center pl-6 z-20">
           <button
             onClick={onPrev}
-            className="flex items-center space-x-1 bg-black/60 hover:bg-black/80 backdrop-blur-sm text-white px-3 py-2 rounded-full transition pointer-events-auto"
+            className="flex items-center space-x-3 bg-black/90 text-white p-5 rounded-r-xl transition-all border-2 border-white/20 hover:border-white focus:outline-none focus:ring-4 focus:ring-amber-400 focus:border-amber-400"
           >
-            <ChevronLeft className="w-5 h-5" />
-            <span className="text-xs font-semibold">Anterior</span>
+            <ChevronLeft className="w-8 h-8" />
+            <span className="text-lg font-bold">Anterior</span>
           </button>
         </div>
       )}
 
       {hasNext && (
-        <div className="absolute inset-y-0 right-0 flex items-center pr-4 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
+        <div className="absolute inset-y-0 right-0 flex items-center pr-6 z-20">
           <button
             onClick={onNext}
-            className="flex items-center space-x-1 bg-black/60 hover:bg-black/80 backdrop-blur-sm text-white px-3 py-2 rounded-full transition pointer-events-auto"
+            className="flex items-center space-x-3 bg-black/90 text-white p-5 rounded-l-xl transition-all border-2 border-white/20 hover:border-white focus:outline-none focus:ring-4 focus:ring-amber-400 focus:border-amber-400"
           >
-            <span className="text-xs font-semibold">Siguiente</span>
-            <ChevronRight className="w-5 h-5" />
+            <span className="text-lg font-bold">Siguiente</span>
+            <ChevronRight className="w-8 h-8" />
           </button>
         </div>
       )}

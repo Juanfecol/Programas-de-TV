@@ -25,3 +25,10 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #404040;
 }
+
+/* TV Focus Styles */
+:focus-visible {
+  outline: 3px solid #f59e0b !important;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
