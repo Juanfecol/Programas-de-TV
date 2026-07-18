@@ -63,6 +63,44 @@ export default function App() {
     }
   };
 
+  const seriesButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [focusedIndex, setFocusedIndex] = useState(0);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (selectedSeries) {
+        if (e.key === 'Escape') {
+          setSelectedSeries(null);
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowRight') {
+        setFocusedIndex((prev) => Math.min(prev + 1, filteredSeries.length - 1));
+      } else if (e.key === 'ArrowLeft') {
+        setFocusedIndex((prev) => Math.max(prev - 1, 0));
+      } else if (e.key === 'ArrowDown') {
+        setFocusedIndex((prev) => Math.min(prev + 1, filteredSeries.length - 1)); // Simplified for linear
+      } else if (e.key === 'ArrowUp') {
+        setFocusedIndex((prev) => Math.max(prev - 1, 0)); // Simplified for linear
+      } else if (e.key === 'Escape') {
+        setSelectedSeries(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedSeries, filteredSeries.length]);
+
+  useEffect(() => {
+    if (!selectedSeries && seriesButtonRefs.current[focusedIndex]) {
+      seriesButtonRefs.current[focusedIndex]?.focus();
+    }
+  }, [focusedIndex, selectedSeries]);
+
+  useEffect(() => {
+    setFocusedIndex(0);
+  }, [filteredSeries.length]);
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-neutral-100 flex flex-col font-sans selection:bg-red-600 selection:text-white">
       <header className="sticky top-0 z-40 bg-neutral-950/90 backdrop-blur-md border-b border-neutral-900 px-4 md:px-8 py-4 flex items-center justify-between">
@@ -95,19 +133,19 @@ export default function App() {
         <AnimatePresence mode="wait">
           {!selectedSeries ? (
             <motion.div key="catalog" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {filteredSeries.map((series) => (
-                <div 
+              {filteredSeries.map((series, index) => (
+                <button
                   key={series.id}
+                  ref={(el) => (seriesButtonRefs.current[index] = el)}
                   onClick={() => handleSelectSeries(series)}
-                  className="group bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden cursor-pointer transition-all hover:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600"
-                  tabIndex={0}
+                  className="group w-full text-left bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 ease-out hover:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600 hover:scale-105 focus:scale-105"
                 >
                   <img src={series.thumbnail} alt={series.title} className="w-full aspect-video object-cover" />
                   <div className="p-4">
                     <h3 className="font-bold text-white">{series.title}</h3>
                     <p className="text-xs text-neutral-400">{series.playlist.length} Capítulos</p>
                   </div>
-                </div>
+                </button>
               ))}
             </motion.div>
           ) : (
@@ -120,8 +158,12 @@ export default function App() {
                     hasNext={currentEpisodeIndex < selectedSeries.playlist.length - 1}
                     onPrev={playPrevEpisode}
                     onNext={playNextEpisode}
-                    onTimeUpdate={() => {}}
-                    onLoadedMetadata={() => {}}
+                    onTimeUpdate={(time, duration) => {
+                      if (duration > 0) {
+                        const progress = (time / duration) * 100;
+                        localStorage.setItem(`progress_${selectedSeries.id}_${currentEpisode.episodio}`, progress.toString());
+                      }
+                    }}
                     onEnded={() => {
                       if (autoplayNext) playNextEpisode();
                     }}
@@ -131,20 +173,32 @@ export default function App() {
               </div>
               <div className="bg-neutral-900 p-4 rounded-xl h-[500px] overflow-y-auto">
                 <h3 className="font-bold mb-4">Capítulos</h3>
-                {selectedSeries.playlist.map((ep, idx) => (
-                  <button
-                    key={ep.episodio}
-                    onClick={() => setCurrentEpisodeIndex(idx)}
-                    className={`w-full text-left p-2 rounded-lg mb-2 ${idx === currentEpisodeIndex ? 'bg-red-600' : 'bg-neutral-800 hover:bg-neutral-700'}`}
-                  >
-                    {ep.episodio}. {ep.titulo}
-                  </button>
-                ))}
+                {selectedSeries.playlist.map((ep, idx) => {
+                   const progress = parseFloat(localStorage.getItem(`progress_${selectedSeries.id}_${ep.episodio}`) || '0');
+                   return (
+                     <button
+                       key={ep.episodio}
+                       onClick={() => setCurrentEpisodeIndex(idx)}
+                       className={`w-full text-left p-2 rounded-lg mb-2 relative overflow-hidden ${idx === currentEpisodeIndex ? 'bg-red-600' : 'bg-neutral-800 hover:bg-neutral-700'}`}
+                     >
+                       {ep.episodio}. {ep.titulo}
+                       {progress > 0 && (
+                          <div className="absolute bottom-0 left-0 h-1 bg-red-400" style={{ width: `${progress}%` }} />
+                       )}
+                     </button>
+                   );
+                })}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </main>
+
+      <div className="fixed bottom-4 left-4 right-4 flex justify-center gap-4 text-xs text-neutral-500 bg-neutral-950/80 backdrop-blur-sm p-2 rounded-full border border-neutral-800 pointer-events-none z-50">
+        <span><kbd className="bg-neutral-800 px-1.5 py-0.5 rounded text-white">↑↓←→</kbd> Mover</span>
+        <span><kbd className="bg-neutral-800 px-1.5 py-0.5 rounded text-white">Enter</kbd> Seleccionar</span>
+        <span><kbd className="bg-neutral-800 px-1.5 py-0.5 rounded text-white">Esc</kbd> Volver</span>
+      </div>
     </div>
   );
 }
