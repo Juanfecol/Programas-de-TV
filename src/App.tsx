@@ -26,8 +26,16 @@ export default function App() {
 
   const handleSelectSeries = (series: Series) => {
     setSelectedSeries(series);
-    setCurrentEpisodeIndex(0);
+    const savedIndex = localStorage.getItem(`last_ep_idx_${series.id}`);
+    const index = savedIndex ? parseInt(savedIndex, 10) : 0;
+    setCurrentEpisodeIndex(index >= 0 && index < series.playlist.length ? index : 0);
   };
+
+  useEffect(() => {
+    if (selectedSeries) {
+      localStorage.setItem(`last_ep_idx_${selectedSeries.id}`, currentEpisodeIndex.toString());
+    }
+  }, [selectedSeries, currentEpisodeIndex]);
 
   const currentEpisode = useMemo(() => {
     if (!selectedSeries) return null;
