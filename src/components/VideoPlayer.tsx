@@ -30,11 +30,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         controls
         className="w-full h-full"
         onTimeUpdate={(e) => onTimeUpdate(e.currentTarget.currentTime, e.currentTarget.duration)}
-        onPlay={(e) => {
-          if (e.currentTarget.requestFullscreen) {
-            e.currentTarget.requestFullscreen().catch(console.error);
-          }
-        }}
         onEnded={onEnded}
       >
         <source src={episode.url} />
