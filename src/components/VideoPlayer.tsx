@@ -26,7 +26,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.load();
-      videoRef.current.play().catch(console.error);
+      videoRef.current.play().then(() => {
+        if (videoRef.current && !document.fullscreenElement) {
+          videoRef.current.requestFullscreen().catch(console.error);
+        }
+      }).catch(console.error);
     }
   }, [episode.url]);
 
@@ -61,7 +65,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   return (
-    <div className="bg-black relative aspect-video group rounded-xl overflow-hidden shadow-2xl">
+    <div className="bg-black relative aspect-video group rounded-xl overflow-hidden shadow-2xl" onDoubleClick={toggleFullscreen}>
       <video
         ref={videoRef}
         key={episode.url}
