@@ -162,11 +162,9 @@ export default function App() {
                 {currentEpisode && (
                   <VideoPlayer
                     episode={currentEpisode}
-                    hasPrev={currentEpisodeIndex > 0}
-                    hasNext={currentEpisodeIndex < selectedSeries.playlist.length - 1}
-                    onPrev={playPrevEpisode}
-                    onNext={playNextEpisode}
+                    savedTime={parseFloat(localStorage.getItem(`time_${selectedSeries.id}_${currentEpisode.episodio}`) || '0')}
                     onTimeUpdate={(time, duration) => {
+                      localStorage.setItem(`time_${selectedSeries.id}_${currentEpisode.episodio}`, time.toString());
                       if (duration > 0) {
                         const progress = (time / duration) * 100;
                         localStorage.setItem(`progress_${selectedSeries.id}_${currentEpisode.episodio}`, progress.toString());
