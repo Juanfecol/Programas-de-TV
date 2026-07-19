@@ -116,7 +116,7 @@ export default function App() {
           <div className="p-2 bg-gradient-to-tr from-red-600 to-amber-500 rounded-xl shadow-lg">
             <Tv className="w-6 h-6 text-white" />
           </div>
-          <span className="text-xl font-black tracking-wider text-white">TELEVECINDAD</span>
+          <span className="text-xl font-black tracking-wider text-white">LOS DEL 6 IZQUIERDO</span>
         </div>
 
         <div className="flex items-center gap-4">
