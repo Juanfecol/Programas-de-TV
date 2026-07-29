@@ -21,7 +21,10 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
   const [currentEpisodeIndex, setCurrentEpisodeIndex] = useState<number>(0);
-  const [autoplayNext, setAutoplayNext] = useState<boolean>(true);
+  const [autoplayNext, setAutoplayNext] = useState<boolean>(() => {
+    const saved = localStorage.getItem('autoplayNext');
+    return saved !== null ? saved === 'true' : true;
+  });
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const handleSelectSeries = (series: Series) => {
@@ -43,6 +46,17 @@ export default function App() {
   }, [selectedSeries, currentEpisodeIndex]);
 
   const categories = useMemo(() => ['Todos', ...Array.from(new Set(seriesData.map(s => s.category)))], []);
+
+  const continueWatchingList = useMemo(() => {
+    return seriesData.map(series => {
+      const savedIdx = localStorage.getItem(`last_ep_idx_${series.id}`);
+      const idx = savedIdx ? parseInt(savedIdx, 10) : 0;
+      const ep = series.playlist[idx] || series.playlist[0];
+      const progress = parseFloat(localStorage.getItem(`progress_${series.id}_${ep.episodio}`) || '0');
+      const time = parseFloat(localStorage.getItem(`time_${series.id}_${ep.episodio}`) || '0');
+      return { series, ep, idx, progress, time };
+    }).filter(item => item.time > 5 && item.progress < 98);
+  }, [selectedSeries, currentEpisodeIndex]);
 
   const filteredSeries = useMemo(() => {
     let result = seriesData;
@@ -72,12 +86,26 @@ export default function App() {
   };
 
   const seriesButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const episodeButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [focusedIndex, setFocusedIndex] = useState(0);
+  const [episodeFocusedIndex, setEpisodeFocusedIndex] = useState(0);
+
+  useEffect(() => {
+    if (selectedSeries) {
+      setEpisodeFocusedIndex(currentEpisodeIndex);
+    }
+  }, [selectedSeries, currentEpisodeIndex]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (selectedSeries) {
-        if (e.key === 'Escape') {
+        if (e.key === 'ArrowDown') {
+          setEpisodeFocusedIndex((prev) => Math.min(prev + 1, selectedSeries.playlist.length - 1));
+        } else if (e.key === 'ArrowUp') {
+          setEpisodeFocusedIndex((prev) => Math.max(prev - 1, 0));
+        } else if (e.key === 'Enter') {
+          setCurrentEpisodeIndex(episodeFocusedIndex);
+        } else if (e.key === 'Escape') {
           setSelectedSeries(null);
         }
         return;
@@ -97,13 +125,19 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedSeries, filteredSeries.length]);
+  }, [selectedSeries, filteredSeries.length, episodeFocusedIndex]);
 
   useEffect(() => {
     if (!selectedSeries && seriesButtonRefs.current[focusedIndex]) {
       seriesButtonRefs.current[focusedIndex]?.focus();
     }
   }, [focusedIndex, selectedSeries]);
+
+  useEffect(() => {
+    if (selectedSeries && episodeButtonRefs.current[episodeFocusedIndex]) {
+      episodeButtonRefs.current[episodeFocusedIndex]?.focus();
+    }
+  }, [episodeFocusedIndex, selectedSeries]);
 
   useEffect(() => {
     setFocusedIndex(0);
@@ -140,21 +174,61 @@ export default function App() {
       <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
         <AnimatePresence mode="wait">
           {!selectedSeries ? (
-            <motion.div key="catalog" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {filteredSeries.map((series, index) => (
-                <button
-                  key={series.id}
-                  ref={(el) => (seriesButtonRefs.current[index] = el)}
-                  onClick={() => handleSelectSeries(series)}
-                  className="group w-full text-left bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 ease-out hover:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600 hover:scale-105 focus:scale-105"
-                >
-                  <img src={series.thumbnail} alt={series.title} className="w-full aspect-video object-cover" />
-                  <div className="p-4">
-                    <h3 className="font-bold text-white">{series.title}</h3>
-                    <p className="text-xs text-neutral-400">{series.playlist.length} Capítulos</p>
+            <motion.div key="catalog" className="space-y-8">
+              {continueWatchingList.length > 0 && selectedCategory === 'Todos' && !searchQuery && (
+                <div>
+                  <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                    <Flame className="w-5 h-5 text-red-600" /> Continuar viendo
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {continueWatchingList.map(({ series, ep, progress }) => (
+                      <button
+                        key={`cw-${series.id}`}
+                        onClick={() => handleSelectSeries(series)}
+                        className="group w-full text-left bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 ease-out hover:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600 hover:scale-105 focus:scale-105 relative"
+                      >
+                        <div className="relative aspect-video">
+                          <img src={series.thumbnail} alt={series.title} className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="p-3 bg-red-600 rounded-full text-white shadow-lg">
+                              <Play className="w-6 h-6 fill-current" />
+                            </div>
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 h-1 bg-neutral-800">
+                            <div className="h-full bg-red-600" style={{ width: `${progress}%` }} />
+                          </div>
+                        </div>
+                        <div className="p-4">
+                          <h3 className="font-bold text-white truncate">{series.title}</h3>
+                          <p className="text-xs text-neutral-400 truncate">Ep. {ep.episodio}: {ep.titulo}</p>
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                </button>
-              ))}
+                </div>
+              )}
+
+              <div>
+                {continueWatchingList.length > 0 && selectedCategory === 'Todos' && !searchQuery && (
+                  <h2 className="text-xl font-bold mb-4">Todas las Series</h2>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {filteredSeries.map((series, index) => (
+                    <button
+                      key={series.id}
+                      ref={(el) => (seriesButtonRefs.current[index] = el)}
+                      onClick={() => handleSelectSeries(series)}
+                      className="group w-full text-left bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 ease-out hover:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600 hover:scale-105 focus:scale-105"
+                    >
+                      <img src={series.thumbnail} alt={series.title} className="w-full aspect-video object-cover" />
+                      <div className="p-4">
+                        <h3 className="font-bold text-white">{series.title}</h3>
+                        <p className="text-xs text-neutral-400">{series.playlist.length} Capítulos</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </motion.div>
           ) : (
             <motion.div key="player" className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -178,14 +252,30 @@ export default function App() {
                 <h1 className="text-2xl font-bold">{selectedSeries.title} - {currentEpisode?.titulo}</h1>
               </div>
               <div className="bg-neutral-900 p-4 rounded-xl h-[500px] overflow-y-auto">
-                <h3 className="font-bold mb-4">Capítulos</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold">Capítulos</h3>
+                  <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                    <span className="text-neutral-400">Autoplay</span>
+                    <input 
+                      type="checkbox"
+                      checked={autoplayNext}
+                      onChange={(e) => {
+                        setAutoplayNext(e.target.checked);
+                        localStorage.setItem('autoplayNext', e.target.checked.toString());
+                      }}
+                      className="w-4 h-4 accent-red-600 rounded cursor-pointer"
+                    />
+                  </label>
+                </div>
                 {selectedSeries.playlist.map((ep, idx) => {
                    const progress = parseFloat(localStorage.getItem(`progress_${selectedSeries.id}_${ep.episodio}`) || '0');
                    return (
                      <button
                        key={ep.episodio}
+                       ref={(el) => { episodeButtonRefs.current[idx] = el; }}
+                       onFocus={() => setEpisodeFocusedIndex(idx)}
                        onClick={() => setCurrentEpisodeIndex(idx)}
-                       className={`w-full text-left p-2 rounded-lg mb-2 relative overflow-hidden ${idx === currentEpisodeIndex ? 'bg-red-600' : 'bg-neutral-800 hover:bg-neutral-700'}`}
+                       className={`w-full text-left p-2 rounded-lg mb-2 relative overflow-hidden focus:outline-none focus:ring-2 focus:ring-white ${idx === currentEpisodeIndex ? 'bg-red-600' : 'bg-neutral-800 hover:bg-neutral-700'}`}
                      >
                        {ep.episodio}. {ep.titulo}
                        {progress > 0 && (
