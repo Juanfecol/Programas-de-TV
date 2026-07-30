@@ -32,6 +32,7 @@ export default function App() {
     const savedIndex = localStorage.getItem(`last_ep_idx_${series.id}`);
     const index = savedIndex ? parseInt(savedIndex, 10) : 0;
     setCurrentEpisodeIndex(index >= 0 && index < series.playlist.length ? index : 0);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   useEffect(() => {
@@ -76,12 +77,14 @@ export default function App() {
   const playNextEpisode = () => {
     if (selectedSeries && currentEpisodeIndex < selectedSeries.playlist.length - 1) {
       setCurrentEpisodeIndex(prev => prev + 1);
+      localStorage.setItem('keepFullscreen', 'true');
     }
   };
 
   const playPrevEpisode = () => {
     if (selectedSeries && currentEpisodeIndex > 0) {
       setCurrentEpisodeIndex(prev => prev - 1);
+      localStorage.setItem('keepFullscreen', 'true');
     }
   };
 
@@ -129,13 +132,17 @@ export default function App() {
 
   useEffect(() => {
     if (!selectedSeries && seriesButtonRefs.current[focusedIndex]) {
-      seriesButtonRefs.current[focusedIndex]?.focus();
+      const el = seriesButtonRefs.current[focusedIndex];
+      el?.focus({ preventScroll: true });
+      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [focusedIndex, selectedSeries]);
 
   useEffect(() => {
     if (selectedSeries && episodeButtonRefs.current[episodeFocusedIndex]) {
-      episodeButtonRefs.current[episodeFocusedIndex]?.focus();
+      const el = episodeButtonRefs.current[episodeFocusedIndex];
+      el?.focus({ preventScroll: true });
+      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [episodeFocusedIndex, selectedSeries]);
 
@@ -218,7 +225,7 @@ export default function App() {
                       key={series.id}
                       ref={(el) => (seriesButtonRefs.current[index] = el)}
                       onClick={() => handleSelectSeries(series)}
-                      className="group w-full text-left bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 ease-out hover:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600 hover:scale-105 focus:scale-105"
+                      className="group w-full text-left bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 ease-out hover:border-red-600 focus:outline-none focus:ring-4 focus:ring-yellow-400 focus:scale-105"
                     >
                       <img src={series.thumbnail} alt={series.title} className="w-full aspect-video object-cover" />
                       <div className="p-4">
@@ -237,6 +244,10 @@ export default function App() {
                   <VideoPlayer
                     episode={currentEpisode}
                     savedTime={parseFloat(localStorage.getItem(`time_${selectedSeries.id}_${currentEpisode.episodio}`) || '0')}
+                    onPrevious={currentEpisodeIndex > 0 ? playPrevEpisode : undefined}
+                    onNext={currentEpisodeIndex < selectedSeries.playlist.length - 1 ? playNextEpisode : undefined}
+                    hasPrevious={currentEpisodeIndex > 0}
+                    hasNext={currentEpisodeIndex < selectedSeries.playlist.length - 1}
                     onTimeUpdate={(time, duration) => {
                       localStorage.setItem(`time_${selectedSeries.id}_${currentEpisode.episodio}`, time.toString());
                       if (duration > 0) {
@@ -274,8 +285,11 @@ export default function App() {
                        key={ep.episodio}
                        ref={(el) => { episodeButtonRefs.current[idx] = el; }}
                        onFocus={() => setEpisodeFocusedIndex(idx)}
-                       onClick={() => setCurrentEpisodeIndex(idx)}
-                       className={`w-full text-left p-2 rounded-lg mb-2 relative overflow-hidden focus:outline-none focus:ring-2 focus:ring-white ${idx === currentEpisodeIndex ? 'bg-red-600' : 'bg-neutral-800 hover:bg-neutral-700'}`}
+                       onClick={() => {
+                        setCurrentEpisodeIndex(idx);
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                       className={`w-full text-left p-2.5 rounded-lg mb-2 relative overflow-hidden focus:outline-none focus:ring-4 focus:ring-yellow-400 ${idx === currentEpisodeIndex ? 'bg-red-600 font-bold' : 'bg-neutral-800 hover:bg-neutral-700'}`}
                      >
                        {ep.episodio}. {ep.titulo}
                        {progress > 0 && (

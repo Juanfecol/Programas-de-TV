@@ -1,12 +1,16 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Episode } from '../types';
-import { Loader2, Maximize, Minimize, PictureInPicture, Play, Pause, RotateCcw, RotateCw, Settings } from 'lucide-react';
+import { Loader2, Maximize, Minimize, PictureInPicture, Play, Pause, RotateCcw, RotateCw, Settings, SkipBack, SkipForward } from 'lucide-react';
 import Hls from 'hls.js';
 
 interface VideoPlayerProps {
   episode: Episode;
   onTimeUpdate: (time: number, duration: number) => void;
   onEnded: () => void;
+  onPrevious?: () => void;
+  onNext?: () => void;
+  hasPrevious?: boolean;
+  hasNext?: boolean;
   savedTime?: number;
 }
 
@@ -14,6 +18,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   episode,
   onTimeUpdate,
   onEnded,
+  onPrevious,
+  onNext,
+  hasPrevious = false,
+  hasNext = false,
   savedTime = 0
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -26,6 +34,51 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [showSettings, setShowSettings] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const wasFullscreenRef = useRef(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (document.fullscreenElement === containerRef.current) {
+        wasFullscreenRef.current = true;
+      } else if (!document.fullscreenElement) {
+        wasFullscreenRef.current = false;
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      setShowUi(true);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        if (videoRef.current && !videoRef.current.paused) {
+          setShowUi(false);
+          setShowSettings(false);
+        }
+      }, 3000);
+
+      if (e.key === ' ' || e.key === 'Enter' || e.key === 'MediaPlayPause') {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.key === 'ArrowRight' || e.key === 'MediaFastForward') {
+        e.preventDefault();
+        skipTime(10);
+      } else if (e.key === 'ArrowLeft' || e.key === 'MediaRewind') {
+        e.preventDefault();
+        skipTime(-10);
+      } else if ((e.key === 'MediaTrackNext' || e.key === 'PageDown' || e.key === 'n') && onNext && hasNext) {
+        e.preventDefault();
+        onNext();
+      } else if ((e.key === 'MediaTrackPrevious' || e.key === 'PageUp' || e.key === 'p') && onPrevious && hasPrevious) {
+        e.preventDefault();
+        onPrevious();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -57,7 +110,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (savedTime > 0) {
           video.currentTime = savedTime;
         }
-        video.play().then(() => setIsPlaying(true)).catch(() => {});
+        video.play().then(() => {
+          setIsPlaying(true);
+          const keepFullscreen = wasFullscreenRef.current || localStorage.getItem('keepFullscreen') === 'true';
+          if (keepFullscreen && containerRef.current && !document.fullscreenElement) {
+            containerRef.current.requestFullscreen().catch(() => {});
+            localStorage.removeItem('keepFullscreen');
+          }
+        }).catch(() => {});
       });
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -86,7 +146,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (savedTime > 0) {
         video.currentTime = savedTime;
       }
-      video.play().then(() => setIsPlaying(true)).catch(() => {});
+      video.play().then(() => {
+        setIsPlaying(true);
+        const keepFullscreen = wasFullscreenRef.current || localStorage.getItem('keepFullscreen') === 'true';
+        if (keepFullscreen && containerRef.current && !document.fullscreenElement) {
+          containerRef.current.requestFullscreen().catch(() => {});
+          localStorage.removeItem('keepFullscreen');
+        }
+      }).catch(() => {});
     }
 
     return () => {
@@ -226,7 +293,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         onPause={() => setIsPlaying(false)}
         onCanPlay={() => setIsLoading(false)}
         onError={handleError}
-        onEnded={onEnded}
+        onEnded={() => {
+          localStorage.setItem('keepFullscreen', 'true');
+          onEnded();
+        }}
       >
         <source src={episode.url} />
         Tu navegador no soporta la reproducción de video.
@@ -283,27 +353,47 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
 
         {/* Center Play/Pause & Skip */}
-        <div className="flex items-center justify-center gap-6 pointer-events-auto">
+        <div className="flex items-center justify-center gap-3 md:gap-6 pointer-events-auto">
+          {onPrevious && (
+            <button 
+              onClick={onPrevious}
+              disabled={!hasPrevious}
+              className={`p-3 bg-neutral-900/80 hover:bg-white/20 rounded-full text-white transition-all hover:scale-110 focus:outline-none focus:ring-4 focus:ring-yellow-400 flex items-center gap-1 ${!hasPrevious ? 'opacity-30 cursor-not-allowed' : ''}`}
+              title="Episodio Anterior"
+            >
+              <SkipBack className="w-5 h-5" />
+            </button>
+          )}
           <button 
             onClick={() => skipTime(-10)}
-            className="p-3 bg-black/50 hover:bg-white/20 rounded-full text-white transition-all hover:scale-110"
+            className="p-3 bg-black/50 hover:bg-white/20 rounded-full text-white transition-all hover:scale-110 focus:outline-none focus:ring-4 focus:ring-yellow-400"
             title="Retroceder 10s"
           >
             <RotateCcw className="w-5 h-5" />
           </button>
           <button 
             onClick={togglePlay}
-            className="p-4 bg-red-600 hover:bg-red-500 rounded-full text-white shadow-lg transition-all hover:scale-110"
+            className="p-4 bg-red-600 hover:bg-red-500 rounded-full text-white shadow-lg transition-all hover:scale-110 focus:outline-none focus:ring-4 focus:ring-yellow-400"
           >
             {isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current" />}
           </button>
           <button 
             onClick={() => skipTime(10)}
-            className="p-3 bg-black/50 hover:bg-white/20 rounded-full text-white transition-all hover:scale-110"
+            className="p-3 bg-black/50 hover:bg-white/20 rounded-full text-white transition-all hover:scale-110 focus:outline-none focus:ring-4 focus:ring-yellow-400"
             title="Adelantar 10s"
           >
             <RotateCw className="w-5 h-5" />
           </button>
+          {onNext && (
+            <button 
+              onClick={onNext}
+              disabled={!hasNext}
+              className={`p-3 bg-neutral-900/80 hover:bg-white/20 rounded-full text-white transition-all hover:scale-110 focus:outline-none focus:ring-4 focus:ring-yellow-400 flex items-center gap-1 ${!hasNext ? 'opacity-30 cursor-not-allowed' : ''}`}
+              title="Siguiente Episodio"
+            >
+              <SkipForward className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* Bottom Bar Info */}
