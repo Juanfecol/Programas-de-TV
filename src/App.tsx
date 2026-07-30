@@ -90,8 +90,27 @@ export default function App() {
 
   const seriesButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const episodeButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const episodeListContainerRef = useRef<HTMLDivElement | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [episodeFocusedIndex, setEpisodeFocusedIndex] = useState(0);
+
+  useEffect(() => {
+    if (selectedSeries) {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, [selectedSeries, currentEpisodeIndex]);
+
+  // Scroll episode list sidebar internally without affecting window scroll
+  useEffect(() => {
+    if (selectedSeries && episodeButtonRefs.current[currentEpisodeIndex] && episodeListContainerRef.current) {
+      const container = episodeListContainerRef.current;
+      const btn = episodeButtonRefs.current[currentEpisodeIndex];
+      if (container && btn) {
+        const topPos = btn.offsetTop - container.offsetTop;
+        container.scrollTo({ top: Math.max(0, topPos - 20), behavior: 'smooth' });
+      }
+    }
+  }, [currentEpisodeIndex, selectedSeries]);
 
   useEffect(() => {
     if (selectedSeries) {
@@ -101,15 +120,14 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.fullscreenElement) {
+        return;
+      }
+
       if (selectedSeries) {
-        if (e.key === 'ArrowDown') {
-          setEpisodeFocusedIndex((prev) => Math.min(prev + 1, selectedSeries.playlist.length - 1));
-        } else if (e.key === 'ArrowUp') {
-          setEpisodeFocusedIndex((prev) => Math.max(prev - 1, 0));
-        } else if (e.key === 'Enter') {
-          setCurrentEpisodeIndex(episodeFocusedIndex);
-        } else if (e.key === 'Escape') {
+        if (e.key === 'Escape') {
           setSelectedSeries(null);
+          window.scrollTo({ top: 0, behavior: 'instant' });
         }
         return;
       }
@@ -119,32 +137,23 @@ export default function App() {
       } else if (e.key === 'ArrowLeft') {
         setFocusedIndex((prev) => Math.max(prev - 1, 0));
       } else if (e.key === 'ArrowDown') {
-        setFocusedIndex((prev) => Math.min(prev + 1, filteredSeries.length - 1)); // Simplified for linear
+        setFocusedIndex((prev) => Math.min(prev + 1, filteredSeries.length - 1));
       } else if (e.key === 'ArrowUp') {
-        setFocusedIndex((prev) => Math.max(prev - 1, 0)); // Simplified for linear
+        setFocusedIndex((prev) => Math.max(prev - 1, 0));
       } else if (e.key === 'Escape') {
         setSelectedSeries(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedSeries, filteredSeries.length, episodeFocusedIndex]);
+  }, [selectedSeries, filteredSeries.length]);
 
   useEffect(() => {
     if (!selectedSeries && seriesButtonRefs.current[focusedIndex]) {
       const el = seriesButtonRefs.current[focusedIndex];
       el?.focus({ preventScroll: true });
-      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [focusedIndex, selectedSeries]);
-
-  useEffect(() => {
-    if (selectedSeries && episodeButtonRefs.current[episodeFocusedIndex]) {
-      const el = episodeButtonRefs.current[episodeFocusedIndex];
-      el?.focus({ preventScroll: true });
-      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-  }, [episodeFocusedIndex, selectedSeries]);
 
   useEffect(() => {
     setFocusedIndex(0);
@@ -262,7 +271,7 @@ export default function App() {
                 )}
                 <h1 className="text-2xl font-bold">{selectedSeries.title} - {currentEpisode?.titulo}</h1>
               </div>
-              <div className="bg-neutral-900 p-4 rounded-xl h-[500px] overflow-y-auto">
+              <div ref={episodeListContainerRef} className="bg-neutral-900 p-4 rounded-xl h-[500px] overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-bold">Capítulos</h3>
                   <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
