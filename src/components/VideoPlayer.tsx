@@ -35,6 +35,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const wasFullscreenRef = useRef(false);
+  const propsRef = useRef({ onPrevious, onNext, hasPrevious, hasNext });
+
+  useEffect(() => {
+    propsRef.current = { onPrevious, onNext, hasPrevious, hasNext };
+  }, [onPrevious, onNext, hasPrevious, hasNext]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -56,6 +61,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       }, 3000);
 
+      const { onPrev, onNxt, hasPrev, hasNxt } = {
+        onPrev: propsRef.current.onPrevious,
+        onNxt: propsRef.current.onNext,
+        hasPrev: propsRef.current.hasPrevious,
+        hasNxt: propsRef.current.hasNext,
+      };
+
       if (e.key === ' ' || e.key === 'Enter' || e.key === 'MediaPlayPause') {
         e.preventDefault();
         togglePlay();
@@ -65,12 +77,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       } else if (e.key === 'ArrowLeft' || e.key === 'MediaRewind') {
         e.preventDefault();
         skipTime(-10);
-      } else if ((e.key === 'MediaTrackNext' || e.key === 'PageDown' || e.key === 'n') && onNext && hasNext) {
+      } else if ((e.key === 'MediaTrackNext' || e.key === 'PageDown' || e.key === 'n') && onNxt && hasNxt) {
         e.preventDefault();
-        onNext();
-      } else if ((e.key === 'MediaTrackPrevious' || e.key === 'PageUp' || e.key === 'p') && onPrevious && hasPrevious) {
+        onNxt();
+      } else if ((e.key === 'MediaTrackPrevious' || e.key === 'PageUp' || e.key === 'p') && onPrev && hasPrev) {
         e.preventDefault();
-        onPrevious();
+        onPrev();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -354,16 +366,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         {/* Center Play/Pause & Skip */}
         <div className="flex items-center justify-center gap-3 md:gap-6 pointer-events-auto">
-          {onPrevious && (
-            <button 
-              onClick={onPrevious}
-              disabled={!hasPrevious}
-              className={`p-3 bg-neutral-900/80 hover:bg-white/20 rounded-full text-white transition-all hover:scale-110 focus:outline-none focus:ring-4 focus:ring-yellow-400 flex items-center gap-1 ${!hasPrevious ? 'opacity-30 cursor-not-allowed' : ''}`}
-              title="Episodio Anterior"
-            >
-              <SkipBack className="w-5 h-5" />
-            </button>
-          )}
+          <button 
+            onClick={onPrevious}
+            disabled={!hasPrevious || !onPrevious}
+            className={`p-3 bg-neutral-900/80 hover:bg-white/20 rounded-full text-white transition-all hover:scale-110 focus:outline-none focus:ring-4 focus:ring-yellow-400 flex items-center gap-1 ${(!hasPrevious || !onPrevious) ? 'opacity-30 cursor-not-allowed' : ''}`}
+            title="Episodio Anterior"
+          >
+            <SkipBack className="w-5 h-5" />
+          </button>
           <button 
             onClick={() => skipTime(-10)}
             className="p-3 bg-black/50 hover:bg-white/20 rounded-full text-white transition-all hover:scale-110 focus:outline-none focus:ring-4 focus:ring-yellow-400"
@@ -384,16 +394,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           >
             <RotateCw className="w-5 h-5" />
           </button>
-          {onNext && (
-            <button 
-              onClick={onNext}
-              disabled={!hasNext}
-              className={`p-3 bg-neutral-900/80 hover:bg-white/20 rounded-full text-white transition-all hover:scale-110 focus:outline-none focus:ring-4 focus:ring-yellow-400 flex items-center gap-1 ${!hasNext ? 'opacity-30 cursor-not-allowed' : ''}`}
-              title="Siguiente Episodio"
-            >
-              <SkipForward className="w-5 h-5" />
-            </button>
-          )}
+          <button 
+            onClick={onNext}
+            disabled={!hasNext || !onNext}
+            className={`p-3 bg-neutral-900/80 hover:bg-white/20 rounded-full text-white transition-all hover:scale-110 focus:outline-none focus:ring-4 focus:ring-yellow-400 flex items-center gap-1 ${(!hasNext || !onNext) ? 'opacity-30 cursor-not-allowed' : ''}`}
+            title="Siguiente Episodio"
+          >
+            <SkipForward className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Bottom Bar Info */}

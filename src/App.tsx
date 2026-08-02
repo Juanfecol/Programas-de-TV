@@ -252,9 +252,13 @@ export default function App() {
                 {currentEpisode && (
                   <VideoPlayer
                     episode={currentEpisode}
-                    savedTime={parseFloat(localStorage.getItem(`time_${selectedSeries.id}_${currentEpisode.episodio}`) || '0')}
-                    onPrevious={currentEpisodeIndex > 0 ? playPrevEpisode : undefined}
-                    onNext={currentEpisodeIndex < selectedSeries.playlist.length - 1 ? playNextEpisode : undefined}
+                    savedTime={(() => {
+                      const progress = parseFloat(localStorage.getItem(`progress_${selectedSeries.id}_${currentEpisode.episodio}`) || '0');
+                      const time = parseFloat(localStorage.getItem(`time_${selectedSeries.id}_${currentEpisode.episodio}`) || '0');
+                      return progress >= 98 ? 0 : time;
+                    })()}
+                    onPrevious={playPrevEpisode}
+                    onNext={playNextEpisode}
                     hasPrevious={currentEpisodeIndex > 0}
                     hasNext={currentEpisodeIndex < selectedSeries.playlist.length - 1}
                     onTimeUpdate={(time, duration) => {
