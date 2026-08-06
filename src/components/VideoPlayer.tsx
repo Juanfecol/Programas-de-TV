@@ -166,8 +166,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       });
     } else {
-      // Bunny.net direct CDN stream (MP4/AVI) with Range request optimization
-      video.src = getCleanUrl(episode.url);
+      // Stream through backend FFmpeg transcode/proxy endpoint for robust compatibility (.avi, .mp4, etc.)
+      video.src = episode.url.includes('commondatastorage.googleapis.com') ? getCleanUrl(episode.url) : `/api/video?url=${encodeURIComponent(episode.url)}`;
       video.preload = 'auto';
       video.crossOrigin = 'anonymous';
       if (savedTime > 0) {
@@ -221,11 +221,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const handleError = () => {
     if (retryCount < 2) {
       setRetryCount(prev => prev + 1);
-      setErrorMessage(`Error en Bunny.net. Reintentando (${retryCount + 1}/2)...`);
+      setErrorMessage(`Error reproduciendo video. Reintentando (${retryCount + 1}/2)...`);
       setTimeout(() => {
         if (videoRef.current) {
           const cur = videoRef.current.currentTime;
-          videoRef.current.src = getCleanUrl(episode.url);
+          videoRef.current.src = episode.url.includes('commondatastorage.googleapis.com') ? getCleanUrl(episode.url) : `/api/video?url=${encodeURIComponent(episode.url)}`;
           videoRef.current.load();
           videoRef.current.currentTime = cur;
           videoRef.current.play().catch(() => {});
@@ -233,7 +233,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }, 1500);
     } else {
       setHasFatalError(true);
-      setErrorMessage('No se pudo cargar este capítulo desde Bunny.net CDN.');
+      setErrorMessage('No se pudo cargar este capítulo.');
       setIsLoading(false);
     }
   };
@@ -314,7 +314,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl max-w-md shadow-2xl">
             <h3 className="text-lg font-bold text-white mb-2">Error de Reproducción</h3>
             <p className="text-sm text-neutral-400 mb-6">
-              El servidor de Bunny.net no pudo cargar este capítulo (archivo no disponible o incompatible). Puedes reintentar o pasar al siguiente episodio.
+              El video no pudo cargarse correctamente o el formato requiere conversión. Puedes reintentar o pasar al siguiente episodio.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
               <button
@@ -323,7 +323,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   setRetryCount(0);
                   setIsLoading(true);
                   if (videoRef.current) {
-                    videoRef.current.src = getCleanUrl(episode.url);
+                    videoRef.current.src = episode.url.includes('commondatastorage.googleapis.com') ? getCleanUrl(episode.url) : `/api/video?url=${encodeURIComponent(episode.url)}`;
                     videoRef.current.load();
                     videoRef.current.play().catch(() => {});
                   }
@@ -373,7 +373,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           onEnded();
         }}
       >
-        <source src={getCleanUrl(episode.url)} />
+        <source src={episode.url.includes('commondatastorage.googleapis.com') ? getCleanUrl(episode.url) : `/api/video?url=${encodeURIComponent(episode.url)}`} />
         Tu navegador no soporta la reproducción de video.
       </video>
 
