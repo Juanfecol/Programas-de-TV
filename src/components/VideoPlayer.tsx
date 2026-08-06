@@ -32,14 +32,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [showSettings, setShowSettings] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [hasFatalError, setHasFatalError] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const wasFullscreenRef = useRef(false);
   const propsRef = useRef({ onPrevious, onNext, hasPrevious, hasNext });
 
+  const getCleanUrl = (url: string) => {
+    try {
+      return encodeURI(decodeURI(url).normalize('NFC'));
+    } catch {
+      return encodeURI(url.normalize('NFC'));
+    }
+  };
+
   useEffect(() => {
     propsRef.current = { onPrevious, onNext, hasPrevious, hasNext };
   }, [onPrevious, onNext, hasPrevious, hasNext]);
+
+  useEffect(() => {
+    setRetryCount(0);
+    setHasFatalError(false);
+  }, [episode.url]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -152,7 +167,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       });
     } else {
       // Bunny.net direct CDN stream (MP4/AVI) with Range request optimization
-      video.src = episode.url;
+      video.src = getCleanUrl(episode.url);
       video.preload = 'auto';
       video.crossOrigin = 'anonymous';
       if (savedTime > 0) {
@@ -204,15 +219,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const handleError = () => {
-    setErrorMessage('Error cargando desde Bunny.net. Reintentando...');
-    setTimeout(() => {
-      if (videoRef.current) {
-        const cur = videoRef.current.currentTime;
-        videoRef.current.load();
-        videoRef.current.currentTime = cur;
-        videoRef.current.play().catch(() => {});
-      }
-    }, 2000);
+    if (retryCount < 2) {
+      setRetryCount(prev => prev + 1);
+      setErrorMessage(`Error en Bunny.net. Reintentando (${retryCount + 1}/2)...`);
+      setTimeout(() => {
+        if (videoRef.current) {
+          const cur = videoRef.current.currentTime;
+          videoRef.current.src = getCleanUrl(episode.url);
+          videoRef.current.load();
+          videoRef.current.currentTime = cur;
+          videoRef.current.play().catch(() => {});
+        }
+      }, 1500);
+    } else {
+      setHasFatalError(true);
+      setErrorMessage('No se pudo cargar este capítulo desde Bunny.net CDN.');
+      setIsLoading(false);
+    }
   };
 
   const togglePlay = () => {
@@ -280,9 +303,49 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
-      {errorMessage && (
+      {errorMessage && !hasFatalError && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-red-600/90 text-white text-xs px-4 py-2 rounded-lg z-30 shadow-lg font-medium">
           {errorMessage}
+        </div>
+      )}
+
+      {hasFatalError && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-40 p-6 text-center pointer-events-auto">
+          <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl max-w-md shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-2">Error de Reproducción</h3>
+            <p className="text-sm text-neutral-400 mb-6">
+              El servidor de Bunny.net no pudo cargar este capítulo (archivo no disponible o incompatible). Puedes reintentar o pasar al siguiente episodio.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                onClick={() => {
+                  setHasFatalError(false);
+                  setRetryCount(0);
+                  setIsLoading(true);
+                  if (videoRef.current) {
+                    videoRef.current.src = getCleanUrl(episode.url);
+                    videoRef.current.load();
+                    videoRef.current.play().catch(() => {});
+                  }
+                }}
+                className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-xl text-xs font-semibold transition-colors"
+              >
+                Reintentar
+              </button>
+              {onNext && (
+                <button
+                  onClick={() => {
+                    setHasFatalError(false);
+                    setRetryCount(0);
+                    onNext();
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-1"
+                >
+                  <SkipForward className="w-4 h-4" /> Siguiente Capítulo
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -310,7 +373,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           onEnded();
         }}
       >
-        <source src={episode.url} />
+        <source src={getCleanUrl(episode.url)} />
         Tu navegador no soporta la reproducción de video.
       </video>
 
