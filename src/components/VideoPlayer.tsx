@@ -39,11 +39,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const wasFullscreenRef = useRef(false);
   const propsRef = useRef({ onPrevious, onNext, hasPrevious, hasNext });
 
-  const getCleanUrl = (url: string) => {
+  const getCleanUrl = (urlStr: string) => {
+    if (!urlStr) return '';
     try {
-      return encodeURI(decodeURI(url).normalize('NFC'));
+      const parsed = new URL(urlStr);
+      parsed.pathname = parsed.pathname
+        .split('/')
+        .map(part => encodeURIComponent(decodeURIComponent(part)))
+        .join('/');
+      return parsed.toString();
     } catch {
-      return encodeURI(url.normalize('NFC'));
+      return encodeURI(decodeURI(urlStr));
     }
   };
 
@@ -166,10 +172,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       });
     } else {
-      // Stream through backend FFmpeg transcode/proxy endpoint for robust compatibility (.avi, .mp4, etc.)
-      video.src = episode.url.includes('commondatastorage.googleapis.com') ? getCleanUrl(episode.url) : `/api/video?url=${encodeURIComponent(episode.url)}`;
+      // Direct stream from Bunny CDN / Cloud Storage MP4/AVI
+      const targetUrl = getCleanUrl(episode.url);
+      video.src = targetUrl;
       video.preload = 'auto';
-      video.crossOrigin = 'anonymous';
       if (savedTime > 0) {
         video.currentTime = savedTime;
       }
@@ -225,7 +231,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setTimeout(() => {
         if (videoRef.current) {
           const cur = videoRef.current.currentTime;
-          videoRef.current.src = episode.url.includes('commondatastorage.googleapis.com') ? getCleanUrl(episode.url) : `/api/video?url=${encodeURIComponent(episode.url)}`;
+          videoRef.current.src = getCleanUrl(episode.url);
           videoRef.current.load();
           videoRef.current.currentTime = cur;
           videoRef.current.play().catch(() => {});
@@ -323,7 +329,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   setRetryCount(0);
                   setIsLoading(true);
                   if (videoRef.current) {
-                    videoRef.current.src = episode.url.includes('commondatastorage.googleapis.com') ? getCleanUrl(episode.url) : `/api/video?url=${encodeURIComponent(episode.url)}`;
+                    videoRef.current.src = getCleanUrl(episode.url);
                     videoRef.current.load();
                     videoRef.current.play().catch(() => {});
                   }
@@ -352,9 +358,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <video
         ref={videoRef}
         key={episode.url}
+        src={getCleanUrl(episode.url)}
         preload="auto"
         playsInline
-        crossOrigin="anonymous"
         className="w-full h-full object-contain cursor-pointer"
         onClick={togglePlay}
         onTimeUpdate={(e) => onTimeUpdate(e.currentTarget.currentTime, e.currentTarget.duration)}
@@ -373,7 +379,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           onEnded();
         }}
       >
-        <source src={episode.url.includes('commondatastorage.googleapis.com') ? getCleanUrl(episode.url) : `/api/video?url=${encodeURIComponent(episode.url)}`} />
         Tu navegador no soporta la reproducción de video.
       </video>
 
